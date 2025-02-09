@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      xp.css:
+        specifier: ^0.2.6
+        version: 0.2.6
     devDependencies:
       '@eslint/compat':
         specifier: ^1.2.5
@@ -1978,6 +1982,9 @@ packages:
       utf-8-validate:
         optional: true
 
+  xp.css@0.2.6:
+    resolution: {integrity: sha512-v0qUB4wOvyXIMLNid5bIpm+0n5aL4i8wE5dqJH8LNVxE04PxUUxjwf2rNzengegUIK03XC4vbfLVCPAfMLtuqA==}
+
   yaml@1.10.2:
     resolution: {integrity: sha512-r3vXyErRCYJ7wg28yvBY5VSoAF8ZvlcW9/BwUzEtUsjvX/DKs24dIkuwjtuprwJJHsbyUbLApepYTR1BN4uHrg==}
     engines: {node: '>= 6'}
@@ -3706,6 +3713,8 @@ snapshots:
       strip-ansi: 7.1.0
 
   ws@8.18.0: {}
+
+  xp.css@0.2.6: {}
 
   yaml@1.10.2: {}
 
