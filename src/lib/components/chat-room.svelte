@@ -1,17 +1,29 @@
 <script lang="ts">
 import { chatState } from '../states/chat.svelte';
-import type { ChatMessage, User } from '../types/chat';
+import type { MessageType, User, ChatRoom, Message, UserStatus } from '../types/chat';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
+import { draggable } from '$lib/actions/draggable';
+import { resizable } from '$lib/actions/resizable';
+import { maximizable } from '$lib/actions/maximizable';
 
 // Initialize with default values for SSR
-let windowWidth = $state(800);
-let windowHeight = $state(600);
+let windowWidth = $state(400);
+let windowHeight = $state(500);
 let windowX = $state(0);
 let windowY = $state(0);
 let isMobile = $state(false);
 let currentMessage = $state('');
 let showUserList = $state(false);
+let isMaximized = $state(false);
+
+
+// 	let { value = $bindable(), ...props } = $props();
+let { showChatRoom = $bindable() } = $props();
+
+function handleClose() {
+  showChatRoom = false;
+}
 
 // Reactive state using derived values
 let messages = $derived(chatState.getMessages());
@@ -29,8 +41,8 @@ onMount(() => {
       windowX = 0;
       windowY = 0;
     } else {
-      windowWidth = Math.min(800, window.innerWidth * 0.8);
-      windowHeight = Math.min(600, window.innerHeight * 0.8);
+      windowWidth = Math.min(800, Math.max(400, window.innerWidth * 0.8));
+      windowHeight = Math.min(600, Math.max(500, window.innerHeight * 0.8));
       windowX = Math.max(0, (window.innerWidth - windowWidth) / 2);
       windowY = Math.max(0, (window.innerHeight - windowHeight) / 2);
     }
@@ -67,23 +79,69 @@ function getStatusIcon(status: User['status']) {
     default: return '⚫';
   }
 }
+
+function handleDragMove(event: CustomEvent<{ x: number; y: number }>) {
+  windowX = event.detail.x;
+  windowY = event.detail.y;
+}
+
+interface MaximizableNode extends HTMLElement {
+  toggleMaximize: () => void;
+}
+
+function handleMaximize(event: MouseEvent) {
+  const node = (event.currentTarget as HTMLElement).closest('.window') as MaximizableNode;
+  if (node) {
+    node.toggleMaximize();
+  }
+}
+
+function handleMaximizeEvent(event: CustomEvent<{ 
+  isMaximized: boolean;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}>) {
+  isMaximized = event.detail.isMaximized;
+  windowWidth = event.detail.width;
+  windowHeight = event.detail.height;
+  windowX = event.detail.x;
+  windowY = event.detail.y;
+}
 </script>
 
+{#if showChatRoom}
 <div 
-  class="window"
-  style:width="{windowWidth}px"
-  style:height="{windowHeight}px"
-  style:position="absolute"
-  style:left="{windowX}px"
-  style:top="{windowY}px"
+  class="chat-window window" 
+  style="width: {windowWidth}px; height: {windowHeight}px; left: {windowX}px; top: {windowY}px;"
+  use:draggable={{ handle: '.title-bar', enabled: !isMobile && !isMaximized }}
+  use:resizable={{
+    enabled: !isMobile && !isMaximized,
+    minWidth: 400,
+    minHeight: 500,
+    maxWidth: window.innerWidth - 40,
+    maxHeight: window.innerHeight - 40
+  }}
+  use:maximizable={{ enabled: !isMobile, padding: 4 }}
+  onmaximize={handleMaximizeEvent}
+  onresizemove={(e) => {
+    windowWidth = Math.max(400, e.detail.width);
+    windowHeight = Math.max(500, e.detail.height);
+  }}
+  ondragmove={handleDragMove}
 >
   <div class="title-bar">
-    <div class="title-bar-text">AIM Chat Room - {currentUser?.nickname}</div>
+    <div class="title-bar-text">Pdr Aim - {currentUser?.nickname}</div>
     <div class="title-bar-controls">
       {#if !isMobile}
         <button aria-label="Minimize"></button>
-        <button aria-label="Maximize"></button>
-        <button aria-label="Close"></button>
+        <button 
+          aria-label="Maximize" 
+          class:maximized={isMaximized}
+          onclick={handleMaximize}
+        ></button>
+        <button onclick={handleClose} aria-label="Close"></button>
       {:else}
         <button 
           aria-label="Toggle Buddy List"
@@ -139,8 +197,8 @@ function getStatusIcon(status: User['status']) {
           <span class="status-icon">{getStatusIcon(user.status)}</span>
           <div class="user-info">
             <div class="nickname">{user.nickname}</div>
-            {#if user.statusMessage}
-              <div class="status-message">{user.statusMessage}</div>
+            {#if user.status === 'away'}
+              <div class="status-message">Away</div>
             {/if}
           </div>
         </div>
@@ -148,18 +206,27 @@ function getStatusIcon(status: User['status']) {
     </div>
   </div>
 </div>
+{/if}
 
 <style>
   :global(*) {
     font-size: 1rem;
+          font-family: 'Microsoft Sans Serif', 'Segoe UI', Tahoma, sans-serif;
   }
 
   .title-bar {
     height: 2rem;
+    position: relative;
+    cursor: move;
+    user-select: none;
+  }
+
+  .chat-window {
+    position: fixed;
+    box-sizing: border-box;
   }
 
   .chat-area {
-    font-family: 'Tahoma', sans-serif;
     line-height: 1.4;
   }
 
@@ -243,6 +310,18 @@ function getStatusIcon(status: User['status']) {
     display: none !important;
   }
 
+  :global(.resize-handle) {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 15px !important;
+    height: 15px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15'%3E%3Cpath d='M11 11v-2h2v2h-2zm0-4h2v2h-2V7zm-2 2V7h2v2H9zm0 2v-2h2v2H9zm-2 0v-2h2v2H7z' fill='%23000'/%3E%3C/svg%3E");
+    background-position: bottom right;
+    background-repeat: no-repeat;
+    cursor: se-resize !important;
+  }
+
   @media (max-width: 768px) {
     .window {
       position: fixed !important;
@@ -279,6 +358,10 @@ function getStatusIcon(status: User['status']) {
     .input-container {
       padding: 0.5rem;
       border-top: 0.125rem solid #dfdfdf;
+    }
+
+    :global(.resize-handle) {
+      display: none;
     }
   }
 </style>
