@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Session, User } from '../types/chat';
 
 // Helper: Compute SHA-256 hash of a message and encode it as a hex string.
-async function sha256(message: string): Promise<string> {
+export async function sha256(message: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(message);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);

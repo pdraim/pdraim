@@ -2,10 +2,32 @@
 	import '../app.css';
 	import DesktopIcons from '$lib/components/desktop-icons.svelte';
 	import ChatRoom from '$lib/components/chat-room.svelte';
-	let { children } = $props();
+	import { chatState } from '$lib/states/chat.svelte';
 
-	let showChatRoom = $state(false);
-	let showAuth = $state(false);
+	let { children, data } = $props();
+
+	$effect(() => {
+		console.debug('Layout reactive update - Session state:', {
+			timestamp: new Date().toISOString(),
+			hasUser: !!data.user,
+			userDetails: data.user ? {
+				nickname: data.user.nickname,
+				status: data.user.status,
+				id: data.user.id
+			} : null,
+			hasSession: !!data.session,
+			sessionDetails: data.session ? {
+				id: data.session.id,
+				expiresAt: new Date(data.session.expiresAt)
+			} : null,
+			cookiePresent: document.cookie.includes('session=')
+		});
+	});
+
+	$effect(() => {
+		console.debug('Updating global chatState with data.user:', data.user);
+		chatState.setCurrentUser(data.user);
+	});
 </script>
 
 <div class="windows-xp-bg">

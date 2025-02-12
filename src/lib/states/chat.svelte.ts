@@ -1,75 +1,40 @@
-import type { User, ChatMessage } from '../types/chat';
+import type { User, Message, EnrichedMessage } from '../types/chat';
+import type { 
+    SendMessageRequest, 
+    SendMessageResponse, 
+    GetMessagesResponse 
+} from '../types/payloads';
+import { invalidate } from '$app/navigation';
 
-// Mock users
-const mockUsers: User[] = [
-    {
-        id: '1',
-        nickname: 'CoolDude98',
-        status: 'online',
-        statusMessage: '🎮 Gaming all day!'
-    },
-    {
-        id: '2',
-        nickname: 'PixelPrincess',
-        status: 'away',
-        statusMessage: 'brb - food time'
-    },
-    {
-        id: '3',
-        nickname: 'WebSurfer2000',
-        status: 'online',
-        statusMessage: 'Surfing the information superhighway'
-    },
-    {
-        id: '4',
-        nickname: 'ChatBot3000',
-        status: 'busy',
-        statusMessage: '🤖 Computing...'
-    }
-];
-
-// Mock initial messages
-const initialMessages: ChatMessage[] = [
-    {
-        id: '1',
-        userId: '1',
-        content: 'sup everyone! who\'s up for some gaming?',
-        timestamp: new Date(Date.now() - 300000),
-        type: 'chat'
-    },
-    {
-        id: '2',
-        userId: '2',
-        content: 'is getting a snack',
-        timestamp: new Date(Date.now() - 240000),
-        type: 'emote'
-    },
-    {
-        id: '3',
-        userId: '3',
-        content: 'Just downloaded the new Internet Explorer 6! So fast! 🚀',
-        timestamp: new Date(Date.now() - 180000),
-        type: 'chat'
-    },
-    {
-        id: '4',
-        userId: '4',
-        content: '*beep boop* Greetings humans!',
-        timestamp: new Date(Date.now() - 120000),
-        type: 'chat'
-    }
-];
-
-// Helper function to generate message ID
-const generateId = () => Math.random().toString(36).substring(2, 15);
 
 class ChatState {
-    private users = $state(mockUsers);
-    private messages = $state(initialMessages);
-    private currentUser = $state(mockUsers[0]);
+    private users = $state<User[]>([]);
+    private messages = $state<Message[]>([]);
+    private currentUser = $state<User | null>(null);
+    private eventSource: EventSource | null = null;
+    private reconnectAttempts = 0;
+    private maxReconnectAttempts = 5;
+    private reconnectDelay = 1000; // Start with 1 second
+    private isInitializing = $state(false);
+    private currentRoomId = $state<string>('default');
+    private userCache = $state<Record<string, User>>({});
 
-    constructor() {
-        // Initialize any necessary subscriptions or cleanup
+    public async reinitialize() {
+        console.debug('Reinitializing chat state...');
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+        }
+        this.reconnectAttempts = 0;
+        this.reconnectDelay = 1000;
+        this.messages = [];
+        if (this.currentUser) {
+            await Promise.all([
+                this.initializeMessages(),
+                this.initializeRoomUsers()
+            ]);
+            this.setupSSE();
+        }
     }
 
     // User methods
@@ -77,42 +42,312 @@ class ChatState {
         return this.currentUser;
     }
 
+    async setCurrentUser(user: User | null) {
+        console.debug('setCurrentUser called with', user);
+        this.currentUser = user;
+
+        if (user) {
+            await Promise.all([
+                this.initializeMessages(),
+                this.initializeRoomUsers()
+            ]);
+            this.setupSSE();
+        } else {
+            // If no global session, clear SSE and state
+            if (this.eventSource) {
+                this.eventSource.close();
+                this.eventSource = null;
+            }
+            this.messages = [];
+            this.users = [];
+        }
+
+        // Invalidate both session and messages to trigger reloads
+        await Promise.all([
+            invalidate('chat:session'),
+            invalidate('chat:messages')
+        ]);
+    }
+
+    private async initializeRoomUsers() {
+        console.debug('Initializing room users for room:', this.currentRoomId);
+        try {
+            const response = await fetch(`/api/rooms/${this.currentRoomId}`, {
+                credentials: 'include'
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch room users');
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error);
+            }
+
+            console.debug('Fetched room buddy list:', data.buddyList);
+            this.users = data.buddyList;
+            // Update cache with new buddy list users
+            this.users.forEach(user => {
+                this.userCache[user.id] = user;
+            });
+        } catch (error) {
+            console.debug('Error fetching room users:', error);
+            this.users = [];
+        }
+    }
+
     getOnlineUsers() {
-        return this.users.filter(user => user.status !== 'offline');
+        return this.users.filter((user: User) => user.status !== 'offline');
     }
 
     getUserById(userId: string) {
-        return this.users.find(user => user.id === userId);
+        // First check the cache
+        if (this.userCache[userId]) {
+            return this.userCache[userId];
+        }
+        
+        // If not in cache, look up in users array
+        const user = this.users.find((user: User) => user.id === userId);
+        if (user) {
+            // Update cache
+            this.userCache[userId] = user;
+            console.debug('getUserById: cached user data', { userId, user });
+        } else {
+            console.debug('getUserById: user not found', { userId });
+        }
+        return user;
     }
 
-    updateUserStatus(userId: string, status: User['status'], statusMessage?: string) {
-        this.users = this.users.map(user => 
-            user.id === userId 
-                ? { ...user, status, ...(statusMessage && { statusMessage }) }
-                : user
-        );
+    updateUserStatus(userId: string, status: User['status']) {
+        this.users = this.users.map((user: User) => {
+            if (user.id === userId) {
+                const updatedUser = { ...user, status };
+                // Update cache
+                this.userCache[userId] = updatedUser;
+                return updatedUser;
+            }
+            return user;
+        });
     }
 
     // Message methods
     getMessages() {
-        return this.messages;
+        // Return messages with enriched user data
+        return this.enrichMessages(this.messages);
     }
 
-    sendMessage(content: string, type: ChatMessage['type'] = 'chat') {
-        if (!this.currentUser) return;
+    // Add method to update user cache for public access
+    updateUserCache(users: User[]) {
+        users.forEach(user => {
+            this.userCache[user.id] = user;
+        });
+        // Also update the users array
+        this.users = users;
+    }
 
-        const newMessage: ChatMessage = {
-            id: generateId(),
-            userId: this.currentUser.id,
-            content,
-            timestamp: new Date(),
-            type
+    // Add method to update messages for public access
+    updateMessages(messages: Message[]) {
+        this.messages = messages;
+    }
+
+    async initializeMessages() {
+        try {
+            const response = await fetch('/api/chat/messages', {
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Failed to fetch messages');
+            
+            const data = await response.json() as GetMessagesResponse;
+            if (!data.success) {
+                throw new Error(data.error);
+            }
+
+            // Get unique user IDs from messages that aren't in the cache
+            const uniqueUserIds = new Set(data.messages.map(msg => msg.senderId));
+            const missingUserIds = Array.from(uniqueUserIds).filter(id => !this.userCache[id]);
+
+            // Fetch missing user data in parallel
+            if (missingUserIds.length > 0) {
+                console.debug('Fetching missing user data for IDs:', missingUserIds);
+                await Promise.all(missingUserIds.map(async (userId) => {
+                    try {
+                        const userResponse = await fetch(`/api/users/${userId}`, {
+                            credentials: 'include'
+                        });
+                        if (userResponse.ok) {
+                            const userData = await userResponse.json();
+                            if (userData.success && userData.user) {
+                                this.userCache[userId] = userData.user;
+                                // Only add to users array if not already present
+                                if (!this.users.some(u => u.id === userId)) {
+                                    this.users = [...this.users, userData.user];
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.debug('Error fetching user data:', { userId, error });
+                    }
+                }));
+            }
+
+            this.messages = data.messages;
+        } catch (error) {
+            console.debug('Error fetching initial messages:', error);
+            this.messages = [];
+        }
+    }
+
+    async sendMessage(content: string, type: Message['type'] = 'chat') {
+        const user = this.getCurrentUser();
+        if (!user) {
+            console.debug('Cannot send message: No current user');
+            return;
+        }
+        
+        try {
+            const payload: SendMessageRequest = {
+                content,
+                type,
+                userId: user.id,
+                chatRoomId: 'default'
+            };
+
+            console.debug('Sending message with payload:', payload);
+
+            const response = await fetch('/api/chat/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to save message');
+            }
+
+            const data = await response.json() as SendMessageResponse;
+            if (!data.success) {
+                throw new Error(data.error);
+            }
+
+            console.debug('Message sent successfully:', data.message);
+            await invalidate('chat:messages');
+        } catch (error) {
+            console.debug('Error sending message:', error);
+            throw error;
+        }
+    }
+
+    private setupSSE() {
+        console.debug('Setting up SSE connection for chat messages');
+        this.connectSSE();
+    }
+
+    private connectSSE() {
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+
+        this.eventSource = new EventSource('/api/chat/messages', {
+            withCredentials: true
+        });
+        
+        this.eventSource.onmessage = async (event) => {
+            try {
+                if (event.data === 'Connected') {
+                    console.debug('SSE connection established');
+                    this.reconnectAttempts = 0;
+                    this.reconnectDelay = 1000;
+                    return;
+                }
+
+                const messageData = JSON.parse(event.data) as Message;
+                
+                // Ensure we have the sender's data before adding the message
+                if (!this.userCache[messageData.senderId]) {
+                    try {
+                        console.debug('Fetching user data for new message:', messageData.senderId);
+                        const response = await fetch(`/api/users/${messageData.senderId}`, {
+                            credentials: 'include'
+                        });
+                        if (response.ok) {
+                            const userData = await response.json();
+                            if (userData.success && userData.user) {
+                                this.userCache[userData.user.id] = userData.user;
+                                // Only add to users array if not already present
+                                if (!this.users.some(u => u.id === userData.user.id)) {
+                                    this.users = [...this.users, userData.user];
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.debug('Error fetching user data for new message:', error);
+                    }
+                }
+
+                // Update messages state
+                this.messages = [...this.messages, messageData];
+                await invalidate('chat:messages');
+            } catch (error) {
+                console.debug('Error parsing SSE message data:', error);
+            }
         };
 
-        this.messages = [...this.messages, newMessage];
+        this.eventSource.onerror = (event) => {
+            console.debug('SSE encountered an error:', event);
+            this.handleSSEError();
+        };
     }
 
-    // Add more methods as needed for your implementation
+    private handleSSEError() {
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+        }
+
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            console.debug(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
+            setTimeout(() => {
+                this.reconnectAttempts++;
+                this.reconnectDelay *= 2; // Exponential backoff
+                this.connectSSE();
+            }, this.reconnectDelay);
+        } else {
+            console.debug('Max reconnection attempts reached');
+        }
+    }
+
+    private reconnectSSE() {
+        this.reconnectAttempts = 0;
+        this.reconnectDelay = 1000;
+        this.connectSSE();
+    }
+
+    // Add new method to enrich multiple messages at once
+    enrichMessages(messages: Message[]): EnrichedMessage[] {
+        return messages.map(msg => this.enrichMessageWithUser(msg));
+    }
+
+    // Add new method to efficiently get user data for messages
+    enrichMessageWithUser(message: Message): EnrichedMessage {
+        const user = this.getUserById(message.senderId);
+        return {
+            ...message,
+            user: user || {
+                id: message.senderId,
+                nickname: 'Unknown User',
+                status: 'offline',
+                password: '', // This is a system user, no password needed
+                createdAt: Date.now(),
+                lastSeen: null,
+                avatarUrl: null
+            }
+        };
+    }
 }
 
 // Export a singleton instance

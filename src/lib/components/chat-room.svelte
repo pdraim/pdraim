@@ -1,6 +1,6 @@
 <script lang="ts">
 import { chatState } from '../states/chat.svelte';
-import type { MessageType, User, ChatRoom, Message, UserStatus } from '../types/chat';
+import type { MessageType, User, ChatRoom, Message, EnrichedMessage } from '../types/chat';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { draggable } from '$lib/actions/draggable';
@@ -17,8 +17,6 @@ let currentMessage = $state('');
 let showUserList = $state(false);
 let isMaximized = $state(false);
 
-
-// 	let { value = $bindable(), ...props } = $props();
 let { showChatRoom = $bindable() } = $props();
 
 function handleClose() {
@@ -26,9 +24,85 @@ function handleClose() {
 }
 
 // Reactive state using derived values
-let messages = $derived(chatState.getMessages());
-let onlineUsers = $derived(chatState.getOnlineUsers());
-let currentUser = $derived(chatState.getCurrentUser());
+let messages = $state<EnrichedMessage[]>([]);
+let onlineUsers = $state<User[]>([]);
+let currentUser = $state<User | null>(null);
+
+// Compute visible messages based on login status
+let visibleMessages = $derived((() => {
+  const isLoggedIn = Boolean(currentUser);
+  const messageCount = messages.length;
+  const result: EnrichedMessage[] = isLoggedIn 
+    ? messages 
+    : messages.slice(Math.max(0, messageCount - 10));
+  return result;
+})());
+
+// Single effect to handle all state updates
+$effect(() => {
+  const user = chatState.getCurrentUser();
+  if (user?.id !== currentUser?.id) {
+    currentUser = user;
+  }
+  
+  // Only update messages if we have new ones
+  const stateMessages = chatState.getMessages();
+  if (stateMessages.length !== messages.length) {
+    messages = stateMessages;
+    
+    // Scroll to bottom when new messages arrive
+    const chatArea = document.querySelector('.chat-area');
+    if (chatArea) {
+      setTimeout(() => {
+        chatArea.scrollTop = chatArea.scrollHeight;
+      }, 0);
+    }
+  }
+  
+  // Update online users
+  const stateOnlineUsers = chatState.getOnlineUsers();
+  if (JSON.stringify(stateOnlineUsers) !== JSON.stringify(onlineUsers)) {
+    onlineUsers = stateOnlineUsers;
+  }
+});
+
+// Fetch public messages only once when needed
+let fetchedPublicMessages = false;
+let fetchedPublicRoom = false;
+
+$effect(() => {
+  if (!currentUser) {
+    // Fetch both public room data and messages in parallel but handle them in sequence
+    if (!fetchedPublicRoom && !fetchedPublicMessages) {
+      fetchedPublicRoom = true;
+      fetchedPublicMessages = true;
+
+      // Fetch both in parallel
+      Promise.all([
+        fetch('/api/rooms/default?public=true').then(r => r.json()),
+        fetch('/api/chat/messages?public=true').then(r => r.json())
+      ])
+      .then(([roomData, messagesData]) => {
+        if (roomData.success) {
+          // First update the chat state with the buddy list
+          chatState.updateUserCache(roomData.buddyList);
+          onlineUsers = roomData.buddyList;
+        }
+        
+        // Then update messages after buddy list is cached
+        if (messagesData.success && messagesData.messages) {
+          chatState.updateMessages(messagesData.messages);
+          messages = chatState.enrichMessages(messagesData.messages);
+        }
+      })
+      .catch(error => {
+        console.error("Error fetching public data:", error);
+        onlineUsers = [];
+        messages = [];
+      });
+    }
+  }
+});
 
 onMount(() => {
   if (!browser) return;
@@ -53,13 +127,20 @@ onMount(() => {
   
   // Add resize listener
   window.addEventListener('resize', handleResize);
+
   return () => window.removeEventListener('resize', handleResize);
 });
 
-function handleSubmit() {
-  if (currentMessage.trim()) {
-    chatState.sendMessage(currentMessage);
+async function handleSubmit() {
+  if (!currentMessage.trim()) return;
+  
+  try {
+    await chatState.sendMessage(currentMessage);
     currentMessage = '';
+  } catch (error) {
+    console.error('Failed to send message:', error);
+    // You might want to show this error to the user in a more friendly way
+    alert('Failed to send message. Please try again.');
   }
 }
 
@@ -158,14 +239,14 @@ function handleMaximizeEvent(event: CustomEvent<{
         class="sunken-panel chat-area"
         style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
       >
-        {#each messages as message}
+        {#each visibleMessages as message (message.id)}
           <div class="message {message.type} text">
             {#if message.type === 'emote'}
-              <span class="timestamp">{formatTimestamp(message.timestamp)}</span>
-              <span class="emote-text">{chatState.getUserById(message.userId)?.nickname} {message.content}</span>
+              <span class="timestamp">{formatTimestamp(new Date(message.timestamp))}</span>
+              <span class="emote-text">{message.user.nickname} {message.content}</span>
             {:else}
-              <span class="timestamp">{formatTimestamp(message.timestamp)}</span>
-              <span class="nickname">{chatState.getUserById(message.userId)?.nickname}:</span>
+              <span class="timestamp">{formatTimestamp(new Date(message.timestamp))}</span>
+              <span class="nickname">{message.user.nickname}:</span>
               <span class="content">{message.content}</span>
             {/if}
           </div>
@@ -179,8 +260,9 @@ function handleMaximizeEvent(event: CustomEvent<{
           style="flex: 1;"
           onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
           placeholder="Type a message..."
+          disabled={!currentUser}
         />
-        <button onclick={handleSubmit}>Send</button>
+        <button onclick={handleSubmit} disabled={!currentUser}>Send</button>
       </div>
     </div>
 
@@ -304,6 +386,13 @@ function handleMaximizeEvent(event: CustomEvent<{
   .input-container {
     position: relative;
     z-index: 2;
+  }
+
+  .input-container input:disabled,
+  .input-container button:disabled {
+    opacity: 0.7;
+    background-color: rgba(128, 128, 128, 0.1);
+    cursor: not-allowed;
   }
 
   .hidden {

@@ -3,12 +3,12 @@ import * as t from "drizzle-orm/sqlite-core";
 import type { User, ChatRoom, Message, UserStatus, MessageType, Session } from "../types/chat";
 import { v4 as uuidv4 } from "uuid";
 import { eq } from "drizzle-orm";
+import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
 export const users = table(
   "users",
   {
     id: t.text("id").primaryKey().$default(() => uuidv4()),
-    email: t.text("email").notNull().unique(),
     password: t.text("password").notNull(),
     nickname: t.text("nickname").notNull(),
     status: t.text("status").notNull().$type<UserStatus>().default("offline"),
@@ -93,4 +93,45 @@ export const messageView = t.sqliteView("message_view").as((qb) =>
   .leftJoin(users, eq(messages.senderId, users.id))
   .leftJoin(chatRooms, eq(messages.chatRoomId, chatRooms.id))
 );
+
+// Create a schema object with all our tables and views
+const schema = {
+    users,
+    sessions,
+    chatRooms,
+    messages,
+    userView,
+    chatRoomView,
+    messageView
+};
+
+// Function to ensure default chat room exists
+export async function ensureDefaultChatRoom(db: LibSQLDatabase<typeof schema>) {
+    console.debug('Ensuring default chat room exists...');
+    try {
+        // Check if default room exists
+        const defaultRoom = await db.select()
+            .from(chatRooms)
+            .where(eq(chatRooms.id, 'default'))
+            .get();
+
+        if (!defaultRoom) {
+            console.debug('Creating default chat room...');
+            await db.insert(chatRooms).values({
+                id: 'default',
+                name: 'General',
+                type: 'group',
+                createdAt: Date.now()
+            });
+            console.debug('Default chat room created successfully');
+        } else {
+            console.debug('Default chat room already exists');
+        }
+    } catch (error) {
+        console.error('Error ensuring default chat room:', error);
+        throw error;
+    }
+}
+
+export default schema;
 

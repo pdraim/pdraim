@@ -6,7 +6,6 @@
 // Users table: holds authentication and profile details
 export interface User {
     id: string;
-    email: string;
     password: string; // hashed password
     nickname: string;
     status: UserStatus; // default is 'offline'
@@ -33,6 +32,10 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
     content: string;
     type: MessageType; // Default is 'chat'
     timestamp: number;  // Timestamp when the message was sent
+  }
+
+  export interface EnrichedMessage extends Message {
+    user: User;
   }
 
   export type MessageType = 'chat' | 'emote' | 'system' | string;
