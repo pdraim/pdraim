@@ -10,9 +10,9 @@ export interface User {
     password: string; // hashed password
     nickname: string;
     status: UserStatus; // default is 'offline'
-    avatarUrl?: string;
+    avatarUrl?: string | null;
     createdAt: number;  // Timestamp (e.g., Unix timestamp)
-    lastSeen?: number;  // Optional last active timestamp
+    lastSeen?: number | null;  // Optional last active timestamp
   }
 
 export type UserStatus = 'offline' | 'online' | 'away' | string;
@@ -31,6 +31,16 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
     chatRoomId: string; // Reference to the chat room (ChatRoom.id)
     senderId: string;   // Reference to the sender (User.id)
     content: string;
-    type: 'chat' | 'emote' | 'system' | string; // Default is 'chat'
+    type: MessageType; // Default is 'chat'
     timestamp: number;  // Timestamp when the message was sent
   }
+
+  export type MessageType = 'chat' | 'emote' | 'system' | string;
+
+  export interface Session {
+    id: string;
+    userId: string;
+    expiresAt: number;
+    createdAt: number;
+  }
+  

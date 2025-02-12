@@ -1,6 +1,6 @@
 import { sqliteTable as table } from "drizzle-orm/sqlite-core";
 import * as t from "drizzle-orm/sqlite-core";
-import type { User, ChatRoom, Message, UserStatus, MessageType } from "../types/chat";
+import type { User, ChatRoom, Message, UserStatus, MessageType, Session } from "../types/chat";
 import { v4 as uuidv4 } from "uuid";
 import { eq } from "drizzle-orm";
 
@@ -11,10 +11,20 @@ export const users = table(
     email: t.text("email").notNull().unique(),
     password: t.text("password").notNull(),
     nickname: t.text("nickname").notNull(),
-    status: t.text("status").$type<UserStatus>().default("offline"),
+    status: t.text("status").notNull().$type<UserStatus>().default("offline"),
     avatarUrl: t.text("avatar_url"),
     createdAt: t.integer("created_at").notNull(),
     lastSeen: t.integer("last_seen"),
+  }
+);
+
+export const sessions = table(
+  "sessions",
+  {
+    id: t.text("id").primaryKey(),
+    userId: t.text("user_id").references(() => users.id).notNull(),
+    expiresAt: t.integer("expires_at").notNull(),
+    createdAt: t.integer("created_at").notNull(),
   }
 );
 
@@ -41,14 +51,15 @@ export const messages = table(
 );
 
 // Validate schema types against interfaces
-type UsersTable = typeof users.$inferSelect;
-type ChatRoomsTable = typeof chatRooms.$inferSelect;
-type MessagesTable = typeof messages.$inferSelect;
-
+export type Users = typeof users.$inferSelect;
+export type ChatRooms = typeof chatRooms.$inferSelect;
+export type Messages = typeof messages.$inferSelect;
+export type Sessions = typeof sessions.$inferSelect;
 // These type assertions will fail if the schema doesn't match the interfaces
-type _UsersValidation = Omit<User, keyof UsersTable> & Omit<UsersTable, keyof User>;
-type _ChatRoomsValidation = Omit<ChatRoom, keyof ChatRoomsTable> & Omit<ChatRoomsTable, keyof ChatRoom>;
-type _MessagesValidation = Omit<Message, keyof MessagesTable> & Omit<MessagesTable, keyof Message>;
+export type _UsersValidation = Omit<User, keyof Users> & Omit<Users, keyof User>;
+export type _ChatRoomsValidation = Omit<ChatRoom, keyof ChatRooms> & Omit<ChatRooms, keyof ChatRoom>;
+export type _MessagesValidation = Omit<Message, keyof Messages> & Omit<Messages, keyof Message>;
+export type _SessionsValidation = Omit<Session, keyof Sessions> & Omit<Sessions, keyof Session>;
 
 export const userView = t.sqliteView("user_view").as((qb) => 
   qb.select({
@@ -82,6 +93,4 @@ export const messageView = t.sqliteView("message_view").as((qb) =>
   .leftJoin(users, eq(messages.senderId, users.id))
   .leftJoin(chatRooms, eq(messages.chatRoomId, chatRooms.id))
 );
-
-
 
