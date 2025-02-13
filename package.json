@@ -18,7 +18,8 @@
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run",
 		"db:generate": "npx drizzle-kit generate",
-		"db:push": "npx drizzle-kit push"
+		"db:push": "npx drizzle-kit push",
+		"db:flush": "tsx utils/db-flush.ts"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.6",
