@@ -6,6 +6,7 @@ import { browser } from '$app/environment';
 import { draggable } from '$lib/actions/draggable';
 import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
+import LoadingButton from './ui/button-loading.svelte';
 
 // Initialize with default values for SSR
 let windowWidth = $state(400);
@@ -131,16 +132,20 @@ onMount(() => {
   return () => window.removeEventListener('resize', handleResize);
 });
 
+// New reactive state to track when a message is being sent
+let isSendingMessage = $state(false);
+
 async function handleSubmit() {
   if (!currentMessage.trim()) return;
-  
+  isSendingMessage = true;
   try {
     await chatState.sendMessage(currentMessage);
     currentMessage = '';
   } catch (error) {
     console.error('Failed to send message:', error);
-    // You might want to show this error to the user in a more friendly way
     alert('Failed to send message. Please try again.');
+  } finally {
+    isSendingMessage = false;
   }
 }
 
@@ -262,7 +267,12 @@ function handleMaximizeEvent(event: CustomEvent<{
           placeholder="Type a message..."
           disabled={!currentUser}
         />
-        <button onclick={handleSubmit} disabled={!currentUser}>Send</button>
+        <LoadingButton 
+          onclick={handleSubmit} 
+          disabled={!currentUser} 
+          loading={isSendingMessage}
+          text="Send"
+        />
       </div>
     </div>
 
@@ -291,11 +301,12 @@ function handleMaximizeEvent(event: CustomEvent<{
 {/if}
 
 <style>
-  :global(*) {
-    font-size: 1rem;
-          font-family: 'Microsoft Sans Serif', 'Segoe UI', Tahoma, sans-serif;
-  }
 
+  .chat-area, .users-list, input {
+    font-size: 1rem;
+    font-family: 'Microsoft Sans Serif', 'Segoe UI', Arial, Tahoma, sans-serif;
+  }
+  
   .title-bar {
     height: 2rem;
     position: relative;
@@ -389,7 +400,7 @@ function handleMaximizeEvent(event: CustomEvent<{
   }
 
   .input-container input:disabled,
-  .input-container button:disabled {
+  .input-container {
     opacity: 0.7;
     background-color: rgba(128, 128, 128, 0.1);
     cursor: not-allowed;

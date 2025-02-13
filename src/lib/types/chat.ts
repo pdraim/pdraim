@@ -1,8 +1,3 @@
-/**
- * TypeScript interfaces for an AOL Instant Messenger–like project.
- * Each interface represents a table structure in your database.
- */
-
 // Users table: holds authentication and profile details
 export interface User {
     id: string;
