@@ -1,6 +1,13 @@
 import type { Handle } from "@sveltejs/kit";
 import { validateSessionToken } from "$lib/api/session.server";
 import { setSessionTokenCookie, deleteSessionTokenCookie } from "$lib/api/session.cookie";
+import { initializeDatabase } from "$lib/db/db.server";
+
+// Initialize database when the server starts
+console.debug("Initializing database on server start...");
+initializeDatabase().catch(error => {
+    console.error('Failed to initialize database:', error);
+});
 
 export const handle: Handle = async ({ event, resolve }) => {
     console.debug("Handling request:", event.url.pathname);

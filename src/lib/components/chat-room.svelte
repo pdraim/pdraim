@@ -7,6 +7,7 @@ import { draggable } from '$lib/actions/draggable';
 import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
 import LoadingButton from './ui/button-loading.svelte';
+import { DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 
 // Initialize with default values for SSR
 let windowWidth = $state(400);
@@ -80,7 +81,7 @@ $effect(() => {
 
       // Fetch both in parallel
       Promise.all([
-        fetch('/api/rooms/default?public=true').then(r => r.json()),
+        fetch(`/api/rooms/${DEFAULT_CHAT_ROOM_ID}?public=true`).then(r => r.json()),
         fetch('/api/chat/messages?public=true').then(r => r.json())
       ])
       .then(([roomData, messagesData]) => {
@@ -164,6 +165,39 @@ function getStatusIcon(status: User['status']) {
     case 'busy': return '🔴';
     default: return '⚫';
   }
+}
+
+function formatLastSeen(lastSeen: number | null | undefined) {
+  if (!lastSeen) return 'Never';
+  
+  const now = Date.now();
+  const diff = now - lastSeen;
+  
+  // Less than a minute
+  if (diff < 60000) {
+    return 'Just now';
+  }
+  
+  // Less than an hour
+  if (diff < 3600000) {
+    const minutes = Math.floor(diff / 60000);
+    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  }
+  
+  // Less than a day
+  if (diff < 86400000) {
+    const hours = Math.floor(diff / 3600000);
+    return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  }
+  
+  // Less than a week
+  if (diff < 604800000) {
+    const days = Math.floor(diff / 86400000);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
+  }
+  
+  // More than a week
+  return new Date(lastSeen).toLocaleDateString();
 }
 
 function handleDragMove(event: CustomEvent<{ x: number; y: number }>) {
@@ -285,12 +319,16 @@ function handleMaximizeEvent(event: CustomEvent<{
     >
       <p style="margin: 0 0 0.5rem 0;"><strong>Buddy List</strong></p>
       {#each onlineUsers as user}
-        <div class="user">
+        <div class="user" class:offline={user.status === 'offline'}>
           <span class="status-icon">{getStatusIcon(user.status)}</span>
           <div class="user-info">
             <div class="nickname">{user.nickname}</div>
             {#if user.status === 'away'}
               <div class="status-message">Away</div>
+            {:else if user.status === 'busy'}
+              <div class="status-message">Busy</div>
+            {:else if user.status === 'offline'}
+              <div class="status-message">Last seen: {formatLastSeen(user.lastSeen)}</div>
             {/if}
           </div>
         </div>
@@ -350,10 +388,16 @@ function handleMaximizeEvent(event: CustomEvent<{
     align-items: flex-start;
     margin-bottom: 0.75rem;
     gap: 0.375rem;
+    transition: opacity 0.3s ease;
+  }
+
+  .user.offline {
+    opacity: 0.6;
   }
 
   .status-icon {
     font-size: 0.875rem;
+    transition: color 0.3s ease;
   }
 
   .user-info {
@@ -364,6 +408,11 @@ function handleMaximizeEvent(event: CustomEvent<{
   .user .nickname {
     font-weight: bold;
     margin-bottom: 0.125rem;
+    transition: color 0.3s ease;
+  }
+
+  .user.offline .nickname {
+    color: #666;
   }
 
   .user .status-message {

@@ -1,4 +1,4 @@
-import { desc, eq, not } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import db from '$lib/db/db.server';
 import { messages, users } from '$lib/db/schema';
 import type { PublicRoomResponse } from '$lib/types/payloads';
@@ -29,10 +29,9 @@ export async function GET({ params, url, locals }): Promise<Response> {
       messageQuery.limit(50);
     }
 
-    // Fetch buddy list: users that are not offline
+    // Fetch buddy list: get all users in the room (including offline)
     const fetchedUsers = await db.select()
-      .from(users)
-      .where(not(eq(users.status, 'offline')));
+      .from(users);
     
     // Sanitize user data by removing sensitive fields
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

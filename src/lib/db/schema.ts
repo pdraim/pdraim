@@ -5,6 +5,19 @@ import { v4 as uuidv4 } from "uuid";
 import { eq } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
+// Default chat room ID - using a UUID to avoid collisions
+export const DEFAULT_CHAT_ROOM_ID = '00000000-0000-0000-0000-000000000001';
+
+// Type guard for LibSQL errors
+interface LibSQLError {
+    code: string;
+    message: string;
+}
+
+function isLibSQLError(error: unknown): error is LibSQLError {
+    return typeof error === 'object' && error !== null && 'code' in error;
+}
+
 export const users = table(
   "users",
   {
@@ -109,25 +122,32 @@ const schema = {
 export async function ensureDefaultChatRoom(db: LibSQLDatabase<typeof schema>) {
     console.debug('Ensuring default chat room exists...');
     try {
-        // Check if default room exists
-        const defaultRoom = await db.select()
-            .from(chatRooms)
-            .where(eq(chatRooms.id, 'default'))
-            .get();
+        // Use a transaction to handle concurrent creation attempts
+        await db.transaction(async (tx) => {
+            const defaultRoom = await tx.select()
+                .from(chatRooms)
+                .where(eq(chatRooms.id, DEFAULT_CHAT_ROOM_ID))
+                .get();
 
-        if (!defaultRoom) {
-            console.debug('Creating default chat room...');
-            await db.insert(chatRooms).values({
-                id: 'default',
-                name: 'General',
-                type: 'group',
-                createdAt: Date.now()
-            });
-            console.debug('Default chat room created successfully');
-        } else {
-            console.debug('Default chat room already exists');
+            if (!defaultRoom) {
+                console.debug('Creating default chat room...');
+                await tx.insert(chatRooms).values({
+                    id: DEFAULT_CHAT_ROOM_ID,
+                    name: 'General',
+                    type: 'group',
+                    createdAt: Date.now()
+                });
+                console.debug('Default chat room created successfully');
+            } else {
+                console.debug('Default chat room already exists');
+            }
+        });
+    } catch (error: unknown) {
+        // If the error is a unique constraint violation, another process probably created the room
+        if (isLibSQLError(error) && error.code === 'SQLITE_CONSTRAINT') {
+            console.debug('Default chat room was created by another process');
+            return;
         }
-    } catch (error) {
         console.error('Error ensuring default chat room:', error);
         throw error;
     }

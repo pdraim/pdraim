@@ -33,4 +33,4 @@ export const GET: RequestHandler = async ({ params }) => {
         console.debug('Error fetching user:', err);
         throw error(500, 'Failed to fetch user information');
     }
-}; 
+};

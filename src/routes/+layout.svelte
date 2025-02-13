@@ -3,10 +3,117 @@
 	import DesktopIcons from '$lib/components/desktop-icons.svelte';
 	import ChatRoom from '$lib/components/chat-room.svelte';
 	import { chatState } from '$lib/states/chat.svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
 
 	let { children, data } = $props();
+	let isVisible = $state(true);
+	let statusInterval = $state<number | undefined>(undefined);
+
+	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
+		if (!data.user?.id) return;
+		
+		const timestamp = new Date().toISOString();
+		console.debug('Updating user status:', {
+			userId: data.user.id,
+			status,
+			timestamp,
+			trigger: new Error().stack?.split('\n')[2]?.trim()
+		});
+
+		try {
+			const response = await fetch('/api/status', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ 
+					status,
+					lastSeen: timestamp
+				})
+			});
+			
+			if (!response.ok) {
+				console.error('Failed to update user status:', await response.json());
+			}
+		} catch (error) {
+			console.error('Error updating user status:', error);
+		}
+	}
+
+	function startStatusTicker() {
+		if (statusInterval) return;
+		
+		console.debug('Starting status ticker');
+		const tickHandler = () => {
+			if (isVisible) {
+				updateUserStatus('online');
+			}
+		};
+
+		statusInterval = window.setInterval(tickHandler, 60000); // Every minute
+		// Run immediately on start
+		tickHandler();
+	}
+
+	function stopStatusTicker() {
+		if (!statusInterval) return;
+		console.debug('Stopping status ticker');
+		window.clearInterval(statusInterval);
+		statusInterval = undefined;
+	}
+
+	function handleVisibilityChange() {
+		if (!browser) return;
+		isVisible = document.visibilityState === 'visible';
+		updateUserStatus(isVisible ? 'online' : 'busy');
+		
+		// Start or stop the ticker based on visibility
+		if (isVisible) {
+			startStatusTicker();
+		} else {
+			stopStatusTicker();
+		}
+	}
+
+	function cleanup() {
+		if (!browser) return;
+		console.debug('Running cleanup - Setting user status to offline');
+		document.removeEventListener('visibilitychange', handleVisibilityChange);
+		stopStatusTicker();
+		updateUserStatus('offline');
+	}
+
+	onMount(() => {
+		if (!browser) return;
+
+		// Set initial online status
+		updateUserStatus('online');
+
+		// Start the status ticker
+		startStatusTicker();
+
+		// Add visibility change listener
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		// Add beforeunload listener
+		window.addEventListener('beforeunload', cleanup);
+
+		// Cleanup on unmount
+		return () => {
+			window.removeEventListener('beforeunload', cleanup);
+			cleanup();
+		};
+	});
+
+	// Additional safety net for clean navigation within the app
+	onDestroy(() => {
+		if (!browser) return;
+		console.debug('Component being destroyed - Running cleanup');
+		window.removeEventListener('beforeunload', cleanup);
+		cleanup();
+	});
 
 	$effect(() => {
+		if (!browser) return;
 		console.debug('Layout reactive update - Session state:', {
 			timestamp: new Date().toISOString(),
 			hasUser: !!data.user,
@@ -20,7 +127,8 @@
 				id: data.session.id,
 				expiresAt: new Date(data.session.expiresAt)
 			} : null,
-			cookiePresent: document.cookie.includes('session=')
+			cookiePresent: document.cookie.includes('session='),
+			isVisible
 		});
 	});
 
