@@ -17,8 +17,8 @@
 		"lint": "prettier --check . && eslint .",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run",
-		"db:generate": "pnpx drizzle-kit generate",
-		"db:push": "pnpx drizzle-kit push"
+		"db:generate": "npx drizzle-kit generate",
+		"db:push": "npx drizzle-kit push"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.6",

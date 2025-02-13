@@ -8,6 +8,13 @@
       "when": 1739208055141,
       "tag": "0000_shallow_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1739432549447,
+      "tag": "0001_blushing_jean_grey",
+      "breakpoints": true
     }
   ]
 }
