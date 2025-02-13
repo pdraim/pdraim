@@ -1,38 +1,73 @@
-# sv
+# Bienvenue
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Ce projet *sandbox*, à but non lucratif, recrée l'ambiance des salons de discussion de l'époque AOL/AIM ; il est accessible à l'adresse : https://pdraim.org.
 
-## Creating a project
+## Technologies utilisées
+- SvelteKit (version 5)
+- Node.js
+- TypeScript
+- XP.css
+- Tailwind CSS
 
-If you're seeing this, you've probably already done this step. Congrats!
+
+## Prérequis
+- Node.js (>=22.13.0)
+- npm ou pnpm pour la gestion des packages
+
+## Installation
+Clonez le dépôt et installez les dépendances :
 
 ```bash
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
+npm install
+# ou
+pnpm install
 ```
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Lancement du projet
+Lancez le projet en mode développement :
 
 ```bash
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+# ou
+pnpm dev
 ```
 
-## Building
+Le site sera accessible via http://localhost:5173 par défaut.
 
-To create a production version of your app:
+## Contribution
+Toute contribution visant à améliorer le réalisme et la qualité du projet est la bienvenue !
+Pour contribuer :
+- Forkez ce dépôt
+- Créez une branche pour vos modifications
+- Envoyez une pull request en décrivant clairement vos changements
+
+## Base de données
+
+Si vous souhaitez pouvoir tester le chat en local, vous devez configurer une base de données. Le projet utilise Drizzle ORM et Turso https://turso.tech/ comme base de données. Je vous invite à en créer une pour vos tests en local et à regarder le fichier `.env.example`.
+
+Pour générer les schémas de la base de données, exécutez la commande suivante :
 
 ```bash
-npm run build
+npm run db:generate
+# ou
+pnpm db:generate
 ```
 
-You can preview the production build with `npm run preview`.
+Pour pousser les schémas à la base de données, exécutez la commande suivante :
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```bash
+npm run db:push
+# ou
+pnpm db:push
+```
+Vous pouvez avoir un aperçu du contenu de la base en utilisant :
+
+```bash
+npx drizzle-kit studio
+```
+
+## Documentation et Ressources
+Si vous n'avez jamais utilisé Svelte/Kit, référez-vous aux documentations officielles :
+- [Documentation de Svelte](https://svelte.dev/docs/)
+- [Documentation de SvelteKit](https://svelte.dev/docs/kit/@sveltejs-kit)
+
