@@ -5,7 +5,8 @@ import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
-    console.debug('GET /api/users/[userId] called with params:', params);
+    const maskedUserId = `${params.userId.slice(0, 4)}...${params.userId.slice(-4)}`;
+    console.log('[Users] Fetching user data:', { userId: maskedUserId });
 
     try {
         const user = await db.select({
@@ -20,17 +21,21 @@ export const GET: RequestHandler = async ({ params }) => {
         .get();
 
         if (!user) {
-            console.debug('User not found:', params.userId);
+            console.log('[Users] User not found:', { userId: maskedUserId });
             throw error(404, 'User not found');
         }
 
-        console.debug('User found:', user);
+        console.log('[Users] User data retrieved:', { 
+            userId: maskedUserId,
+            status: user.status,
+            lastSeen: user.lastSeen ? new Date(user.lastSeen).toISOString() : null
+        });
         return json({
             success: true,
             user
         });
-    } catch (err) {
-        console.debug('Error fetching user:', err);
+    } catch {
+        console.log('[Users] Error fetching user data:', { userId: maskedUserId });
         throw error(500, 'Failed to fetch user information');
     }
 };

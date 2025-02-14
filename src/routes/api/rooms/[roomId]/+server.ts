@@ -14,7 +14,11 @@ export async function GET({ params, url, locals }): Promise<Response> {
   }
 
   try {
-    console.debug(`Fetching ${isPublic ? 'public' : 'private'} room data for room: ${roomId}`);
+    console.log('[Rooms] Fetching room data:', { 
+      roomId,
+      isPublic,
+      requestedBy: locals.user ? `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}` : 'public'
+    });
     
     // Fetch messages for the room (most recent then reversed for chronological order)
     const messageQuery = db.select()
@@ -42,12 +46,18 @@ export async function GET({ params, url, locals }): Promise<Response> {
       buddyList: sanitizedUsers
     };
 
+    console.log('[Rooms] Successfully fetched room data:', { 
+      roomId,
+      userCount: sanitizedUsers.length,
+      isPublic
+    });
+
     return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
-  } catch (err) {
-    console.debug('Error fetching room data:', err);
+  } catch {
+    console.log('[Rooms] Error fetching room data:', { roomId });
     const errorResponse: PublicRoomResponse = {
       success: false,
       error: 'Failed to fetch room data'

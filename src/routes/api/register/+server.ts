@@ -9,7 +9,7 @@ const captchaAttempts = new Map<string, { count: number, lastAttempt: number }>(
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const POST: RequestHandler = async ({ request }) => {
-	console.debug("POST /api/register called");
+	console.log("[Register] New registration attempt received");
 
 	// Only allow POST
 	if (request.method !== 'POST') {
@@ -19,8 +19,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	let body: unknown;
 	try {
 		body = await request.json();
-	} catch (err) {
-		console.debug("Invalid JSON", err);
+	} catch {
+		console.log("[Register] Invalid JSON payload received");
 		return new Response(JSON.stringify({ error: 'Invalid JSON' } as RegisterResponseError), { status: 400 });
 	}
 
@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Destructure and validate required fields from the payload.
 	if (typeof suUsername !== 'string' || typeof suPassword !== 'string' ||
 	    typeof suConfirmPassword !== 'string' || typeof captchaAnswer !== 'string') {
-		console.debug("Missing or invalid input fields", { suUsername, suPassword, suConfirmPassword, captchaAnswer });
+		console.log("[Register] Missing or invalid input fields");
 		return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as RegisterResponseError), { status: 400 });
 	}
 
@@ -66,19 +66,20 @@ export const POST: RequestHandler = async ({ request }) => {
 	const expectedCaptcha = "point de rencontre";
 	// Get the IP address for rate limiting. In production, a more reliable method should be used.
 	const ip = request.headers.get('x-forwarded-for') || 'unknown';
+	const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
 	const now = Date.now();
 	const attemptData = captchaAttempts.get(ip) || { count: 0, lastAttempt: 0 };
 	// If the user has failed three or more times, apply aggressive exponential backoff.
 	if (attemptData.count >= 3) {
 		const delay = Math.pow(2, attemptData.count - 3 + 1) * 1000; // delay in milliseconds
-		console.debug(`Applying exponential backoff delay of ${delay}ms for IP ${ip}`);
+		console.log(`[Register] Rate limit exceeded for IP ${maskedIp} - applying ${delay}ms delay`);
 		await sleep(delay);
 	}
 	if (captcha !== expectedCaptcha) {
 		attemptData.count++;
 		attemptData.lastAttempt = now;
 		captchaAttempts.set(ip, attemptData);
-		console.debug(`Captcha failed for IP ${ip}. Attempt count: ${attemptData.count}`);
+		console.log(`[Register] Captcha failed for IP ${maskedIp}. Attempt count: ${attemptData.count}`);
 		const remaining = Math.max(0, 3 - attemptData.count);
 		return new Response(JSON.stringify({ error: `Incorrect captcha answer. ${remaining > 0 ? remaining + " attempt(s) remaining." : "Please wait before trying again."}` } as RegisterResponseError), { status: 400 });
 	}
@@ -91,8 +92,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	let hashedPassword: string;
 	try {
 		hashedPassword = await hashPassword(password);
-	} catch (err) {
-		console.debug("Error hashing password", err);
+	} catch {
+		console.log("[Register] Error hashing password");
 		return new Response(JSON.stringify({ error: 'Internal Server Error' } as RegisterResponseError), { status: 500 });
 	}
 	// Insert the new user into the database.
@@ -102,9 +103,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			nickname: username,
 			createdAt: Date.now()
 		});
-		console.debug(`User ${username} registered successfully`);
+		console.log(`[Register] User ${username} registered successfully`);
 	} catch (err) {
-		console.debug("Database insertion error", err);
+		console.log("Database insertion error", err);
 		// Assume a duplicate user error if the email (or derived unique field) already exists.
 		return new Response(JSON.stringify({ error: 'User registration failed. Possibly user already exists.' } as RegisterResponseError), { status: 409 });
 	}

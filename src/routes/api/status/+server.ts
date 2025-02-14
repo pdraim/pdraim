@@ -18,13 +18,14 @@ export async function POST({ request, cookies, locals }) {
     }
 
     const userId = locals.user.id;
-    console.debug('Updating status for user', userId, 'to', status);
+    const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
+    console.log('[Status] Updating user status:', { userId: maskedUserId, status });
 
     // Update the user status in the database
     await db.update(users)
         .set({ status, lastSeen: status === 'offline' ? Date.now() : null })
         .where(eq(users.id, userId));
-    console.debug('Status updated in database');
+    console.log('[Status] Database updated successfully');
 
     // Renew session if status is online and session is near expiry
     if (status === 'online') {
@@ -39,7 +40,7 @@ export async function POST({ request, cookies, locals }) {
                     const newToken = generateSessionToken();
                     const newSession = await createSession(newToken, userId);
                     setSessionTokenCookie({ cookies }, newToken, newSession.expiresAt);
-                    console.debug('Session renewed for user', userId);
+                    console.log('[Status] Session renewed:', { userId: maskedUserId, expiresAt: new Date(newSession.expiresAt).toISOString() });
                 }
             }
         }
