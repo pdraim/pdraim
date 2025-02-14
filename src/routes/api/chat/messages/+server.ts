@@ -89,34 +89,23 @@ export async function GET({ request, locals }) {
         // Ensure default chat room exists
         await ensureDefaultChatRoom(db);
         
-        // Initialize cache if needed
-        if (!isCacheInitialized) {
-            await initializeCache();
-        }
-        
-        console.log('[Chat] Fetching messages', { 
-            isPublic, 
-            fromCache: isCacheInitialized,
-            roomId
-        });
-        
         let fetchedMessages: Message[];
-        if (isCacheInitialized) {
-            // Get from cache
-            fetchedMessages = messageCache.getMessages(roomId, isPublic ? 10 : 50);
+        if (isPublic) {
+            if (!isCacheInitialized) {
+                await initializeCache();
+            }
+            console.log('[Chat] Fetching public messages from cache', { roomId });
+            fetchedMessages = messageCache.getMessages(roomId, 10);
         } else {
-            // Fallback to DB if cache initialization failed
+            if (!locals.user) {
+                throw error(401, 'Authentication required');
+            }
+            console.log('[Chat] Fetching messages from DB for instant chat', { roomId });
             const query = db.select()
                 .from(messages)
                 .where(eq(messages.chatRoomId, roomId))
-                .orderBy(desc(messages.timestamp));
-
-            if (isPublic) {
-                query.limit(10);
-            } else {
-                query.limit(50);
-            }
-
+                .orderBy(desc(messages.timestamp))
+                .limit(50);
             fetchedMessages = (await query).reverse();
         }
 
@@ -244,11 +233,6 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             type: newMessage.type,
             timestamp: newMessage.timestamp
         });
-
-        // Add to cache if initialized
-        if (isCacheInitialized) {
-            messageCache.addMessage(newMessage);
-        }
 
         // Broadcast the new message via the unified SSE emitter
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });

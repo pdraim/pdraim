@@ -5,6 +5,7 @@ import { initializeDatabase } from "$lib/db/db.server";
 import db from "$lib/db/db.server";
 import { handleRateLimit } from "$lib/api/rate-limiter";
 import { users } from "$lib/db/schema";
+import { initializeMessageCache } from "$lib/cache/initialize-cache";
 
 async function setAllUsersOffline() {
     try {
@@ -24,6 +25,7 @@ console.debug("Initializing database on server start...");
 initializeDatabase()
     .then(async () => {
         await setAllUsersOffline();
+        await initializeMessageCache();
     })
     .catch(error => {
         console.error('Failed to initialize database:', error);
