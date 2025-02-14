@@ -8,15 +8,18 @@ console.log('[SSE] Server initialized');
 
 // Constants for timeout checks
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-const CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
+const CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds
 
 // Initialize periodic check for timed out users
 const timeoutInterval = setInterval(async () => {
     const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
-    console.log('[SSE] Checking for timed out users', { checkTime: new Date().toISOString() });
+    console.log('[SSE] Checking for timed out users', { 
+        checkTime: new Date().toISOString(),
+        timeoutThreshold: new Date(timeoutThreshold).toISOString()
+    });
 
     try {
-        // Find and update users who are marked as online but haven't been seen recently
+        // Find and update users who haven't been seen recently
         const now = Date.now();
         const result = await db.update(users)
             .set({ 
@@ -25,15 +28,26 @@ const timeoutInterval = setInterval(async () => {
             })
             .where(
                 and(
-                    eq(users.status, 'online'),
-                    lt(users.lastSeen, timeoutThreshold)
+                    eq(users.status, 'online'), // Only update online users
+                    lt(users.lastSeen, timeoutThreshold) // Who haven't been seen recently
                 )
             )
-            .returning({ id: users.id });
+            .returning({ 
+                id: users.id,
+                nickname: users.nickname,
+                lastSeen: users.lastSeen
+            });
+
+        // Log timeout results
+        if (result.length > 0) {
+            console.log('[SSE] Found timed out users:', result.map(user => ({
+                nickname: user.nickname,
+                lastSeen: new Date(user.lastSeen || 0).toISOString()
+            })));
+        }
 
         // Broadcast status updates for timed out users
         result.forEach(user => {
-            const maskedUserId = `${user.id.slice(0, 4)}...${user.id.slice(-4)}`;
             sseEmitter.emit('sse', {
                 type: 'userStatusUpdate',
                 data: {
@@ -42,10 +56,13 @@ const timeoutInterval = setInterval(async () => {
                     lastSeen: now
                 }
             });
-            console.log('[SSE] User timed out and marked offline:', maskedUserId);
+            console.log('[SSE] User timed out and marked offline:', {
+                nickname: user.nickname,
+                lastSeen: new Date(now).toISOString()
+            });
         });
-    } catch {
-        console.log('[SSE] Error during timeout check');
+    } catch (error) {
+        console.log('[SSE] Error during timeout check:', error);
     }
 }, CHECK_INTERVAL_MS);
 
@@ -117,7 +134,10 @@ export const GET: RequestHandler = async ({ locals }) => {
                 // Update lastSeen timestamp on each keepalive
                 await db.update(users)
                     .set({ lastSeen: Date.now() })
-                    .where(eq(users.id, userId));
+                    .where(eq(users.id, userId))
+                    .catch(error => {
+                        console.log('[SSE] Error updating lastSeen on keepalive:', error);
+                    });
             }, 20000);
         },
         async cancel(reason) {

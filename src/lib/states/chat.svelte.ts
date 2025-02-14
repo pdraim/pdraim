@@ -21,6 +21,8 @@ class ChatState {
     private userCache = $state<Record<string, User>>({});
     private sseError = $state<string | null>(null);
     private sseRetryAfter = $state<number | null>(null);
+    private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+    private isReconnecting = $state(false);
 
     public async reinitialize() {
         console.debug('Reinitializing chat state...');
@@ -355,74 +357,107 @@ class ChatState {
 
     private setupSSE() {
         console.debug('Setting up SSE connection for chat messages');
-        this.connectSSE();
+        // Clear any existing connection timeout
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        // Add a small delay before connecting to prevent rapid reconnection attempts
+        this.connectionTimeout = setTimeout(() => {
+            this.connectSSE();
+        }, 500);
     }
 
     private connectSSE() {
         if (this.eventSource) {
             this.eventSource.close();
+            this.eventSource = null;
         }
+
+        if (this.isReconnecting) {
+            console.debug('Already attempting to reconnect, skipping new connection attempt');
+            return;
+        }
+
+        this.isReconnecting = true;
+        console.debug('Connecting to SSE...');
         
-        // Connect to the unified SSE endpoint
-        this.eventSource = new EventSource('/api/sse', { withCredentials: true });
+        try {
+            // Connect to the unified SSE endpoint
+            this.eventSource = new EventSource('/api/sse', { withCredentials: true });
 
-        // Default message event for handshake
-        this.eventSource.onmessage = (event) => {
-            if (event.data === 'Connected') {
-                console.debug('SSE connection established');
-                this.reconnectAttempts = 0;
-                this.reconnectDelay = 1000;
-            } else {
-                console.debug('Received unexpected default message:', event.data);
-            }
-        };
+            // Default message event for handshake
+            this.eventSource.onmessage = (event) => {
+                if (event.data === 'Connected') {
+                    console.debug('SSE connection established');
+                    this.reconnectAttempts = 0;
+                    this.reconnectDelay = 1000;
+                    this.isReconnecting = false;
+                    this.sseError = null;
+                    this.sseRetryAfter = null;
+                } else {
+                    console.debug('Received unexpected default message:', event.data);
+                }
+            };
 
-        // Listen for chat messages
-        this.eventSource.addEventListener('chatMessage', async (event: MessageEvent) => {
-            try {
-                const messageData = JSON.parse(event.data) as Message;
-                // Ensure the sender's data is available
-                if (!this.userCache[messageData.senderId]) {
-                    console.debug('Fetching user data for new message:', messageData.senderId);
-                    const response = await fetch(`/api/users/${messageData.senderId}`, { credentials: 'include' });
-                    if (response.ok) {
-                        const userData = await response.json();
-                        if (userData.success && userData.user) {
-                            this.userCache[userData.user.id] = userData.user;
-                            if (!this.users.some(u => u.id === userData.user.id)) {
-                                this.users = [...this.users, userData.user];
+            // Listen for chat messages
+            this.eventSource.addEventListener('chatMessage', async (event: MessageEvent) => {
+                try {
+                    const messageData = JSON.parse(event.data) as Message;
+                    // Ensure the sender's data is available
+                    if (!this.userCache[messageData.senderId]) {
+                        console.debug('Fetching user data for new message:', messageData.senderId);
+                        const response = await fetch(`/api/users/${messageData.senderId}`, { credentials: 'include' });
+                        if (response.ok) {
+                            const userData = await response.json();
+                            if (userData.success && userData.user) {
+                                this.userCache[userData.user.id] = userData.user;
+                                if (!this.users.some(u => u.id === userData.user.id)) {
+                                    this.users = [...this.users, userData.user];
+                                }
                             }
                         }
                     }
+                    this.messages = [...this.messages, messageData];
+                    await invalidate('chat:messages');
+                } catch (error) {
+                    console.debug('Error parsing chatMessage SSE data:', error);
                 }
-                this.messages = [...this.messages, messageData];
-                await invalidate('chat:messages');
-            } catch (error) {
-                console.debug('Error parsing chatMessage SSE data:', error);
-            }
-        });
+            });
 
-        // Listen for user status updates
-        this.eventSource.addEventListener('userStatusUpdate', (event: MessageEvent) => {
-            try {
-                const userUpdate = JSON.parse(event.data);
-                console.debug('Received SSE user status update:', userUpdate);
-                this.updateUserStatus(userUpdate.userId, userUpdate.status, userUpdate.lastSeen);
-            } catch (error) {
-                console.debug('Error processing userStatusUpdate event:', error);
-            }
-        });
+            // Listen for user status updates
+            this.eventSource.addEventListener('userStatusUpdate', (event: MessageEvent) => {
+                try {
+                    const userUpdate = JSON.parse(event.data);
+                    console.debug('Received SSE user status update:', userUpdate);
+                    this.updateUserStatus(userUpdate.userId, userUpdate.status, userUpdate.lastSeen);
+                } catch (error) {
+                    console.debug('Error processing userStatusUpdate event:', error);
+                }
+            });
 
-        this.eventSource.onerror = (event) => {
-            console.debug('SSE encountered an error:', event);
+            this.eventSource.onerror = (event) => {
+                console.debug('SSE encountered an error:', event);
+                this.handleSSEError();
+            };
+        } catch (error) {
+            console.debug('Error setting up SSE connection:', error);
+            this.isReconnecting = false;
             this.handleSSEError();
-        };
+        }
     }
 
     private async handleSSEError() {
         if (this.eventSource) {
             this.eventSource.close();
             this.eventSource = null;
+        }
+
+        // If we're already reconnecting, don't start another reconnection attempt
+        if (this.isReconnecting) {
+            console.debug('Already attempting to reconnect, skipping error handler');
+            return;
         }
 
         // Check if the error was due to rate limiting
@@ -432,13 +467,14 @@ class ChatState {
                 const data = await response.json();
                 this.sseError = data.error;
                 this.sseRetryAfter = data.retryAfter;
+                this.isReconnecting = false;
                 
                 // Set up automatic retry after the rate limit expires
                 setTimeout(() => {
                     this.sseError = null;
                     this.sseRetryAfter = null;
                     this.reconnectSSE();
-                }, data.retryAfter * 1000);
+                }, (data.retryAfter + 1) * 1000); // Add 1 second buffer
                 
                 return;
             }
@@ -454,15 +490,22 @@ class ChatState {
             setTimeout(() => {
                 this.reconnectAttempts++;
                 this.reconnectDelay *= 2; // Exponential backoff
+                this.isReconnecting = false;
                 this.connectSSE();
             }, this.reconnectDelay);
         } else {
+            this.isReconnecting = false;
             this.sseError = 'Unable to connect to chat. Please refresh the page to try again.';
             console.debug('Max reconnection attempts reached');
         }
     }
 
     private reconnectSSE() {
+        if (this.isReconnecting) {
+            console.debug('Already attempting to reconnect, skipping reconnection request');
+            return;
+        }
+        
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
         this.sseError = null;

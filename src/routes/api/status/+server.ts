@@ -21,9 +21,15 @@ export async function POST({ request, cookies, locals }) {
     const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
     console.log('[Status] Updating user status:', { userId: maskedUserId, status });
 
+    const now = Date.now();
+
     // Update the user status in the database
+    // Always update lastSeen to support timeout detection
     await db.update(users)
-        .set({ status, lastSeen: status === 'offline' ? Date.now() : null })
+        .set({ 
+            status, 
+            lastSeen: now // Always update lastSeen for proper timeout detection
+        })
         .where(eq(users.id, userId));
     console.log('[Status] Database updated successfully');
 
@@ -33,7 +39,6 @@ export async function POST({ request, cookies, locals }) {
         if (token) {
             const result = await validateSessionToken(token);
             if (result.session) {
-                const now = Date.now();
                 const remaining = result.session.expiresAt - now;
                 const threshold = 15 * 60 * 1000; // 15 minutes in milliseconds
                 if (remaining < threshold) {
@@ -47,7 +52,14 @@ export async function POST({ request, cookies, locals }) {
     }
 
     // Broadcast the status update via SSE
-    sseEmitter.emit('sse', { type: 'userStatusUpdate', data: { userId, status, lastSeen: status === 'offline' ? Date.now() : null } });
+    sseEmitter.emit('sse', { 
+        type: 'userStatusUpdate', 
+        data: { 
+            userId, 
+            status, 
+            lastSeen: now // Always send the current timestamp
+        } 
+    });
 
     return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
