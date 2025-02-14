@@ -3,7 +3,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 // Rate limit configuration by endpoint type
 const RATE_LIMITS = {
     // Authentication endpoints (login, register)
-    auth: { points: 5, durationMs: 5 * 60 * 1000 }, // 5 requests per 5 minutes
+    auth: { points: 20, durationMs: 5 * 60 * 1000 }, // 20 requests per 5 minutes
     
     // Public endpoints (public chat, rooms)
     public: { points: 30, durationMs: 60 * 1000 }, // 30 requests per minute
@@ -81,6 +81,8 @@ function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS, isAut
     const { points, durationMs } = RATE_LIMITS[endpointType];
     const requests = ipRequests.get(ip) || [];
     const validRequests = requests.filter(req => now - req.timestamp < durationMs);
+    
+    console.debug(`Rate limit check for ${ip} on ${endpointType}: ${validRequests.length}/${points} requests in the last ${durationMs/1000}s`);
     
     if (validRequests.length >= points) {
         const oldestRequest = validRequests[0];
