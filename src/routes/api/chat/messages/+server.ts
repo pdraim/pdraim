@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { chatRooms, DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { ensureDefaultChatRoom } from '$lib/db/schema';
+import { messageCache } from '$lib/cache/message-cache';
 
 // Rate limiting configuration
 const INITIAL_COOLDOWN = 1000; // 1 second
@@ -47,9 +48,39 @@ function updateUserCooldown(userId: string): { canSend: boolean; retryAfter?: nu
     return { canSend: true };
 }
 
-// GET endpoint: fetch messages from the DB
+// Initialize message cache on server start
+let isCacheInitialized = false;
+async function initializeCache() {
+    if (isCacheInitialized) return;
+    
+    try {
+        console.log('[Chat] Initializing message cache');
+        // Fetch messages from all rooms, limited to last 100 per room
+        const fetchedMessages = await db.select()
+            .from(messages)
+            .orderBy(desc(messages.timestamp))
+            .limit(500); // Increased limit to accommodate multiple rooms
+            
+        await messageCache.initialize(fetchedMessages.reverse());
+        isCacheInitialized = true;
+        
+        // Log cache stats after initialization
+        const stats = messageCache.getCacheStats();
+        console.log('[Chat] Message cache initialized successfully:', {
+            roomCount: stats.roomCount,
+            totalMessages: stats.totalMessages
+        });
+    } catch (error) {
+        console.error('[Chat] Failed to initialize message cache:', error);
+        // Don't set isCacheInitialized to true on error
+    }
+}
+
+// GET endpoint: fetch messages from cache or DB
 export async function GET({ request, locals }) {
     const isPublic = new URL(request.url).searchParams.get('public') === 'true';
+    const roomId = new URL(request.url).searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
+    
     if (!isPublic && !locals.user) {
         throw error(401, 'Authentication required');
     }
@@ -58,22 +89,40 @@ export async function GET({ request, locals }) {
         // Ensure default chat room exists
         await ensureDefaultChatRoom(db);
         
-        console.log('[Chat] Fetching messages', { isPublic });
-        const query = db.select()
-            .from(messages)
-            .orderBy(desc(messages.timestamp));
-
-        if (isPublic) {
-            query.limit(10);
-        } else {
-            query.limit(50);
+        // Initialize cache if needed
+        if (!isCacheInitialized) {
+            await initializeCache();
         }
+        
+        console.log('[Chat] Fetching messages', { 
+            isPublic, 
+            fromCache: isCacheInitialized,
+            roomId
+        });
+        
+        let fetchedMessages: Message[];
+        if (isCacheInitialized) {
+            // Get from cache
+            fetchedMessages = messageCache.getMessages(roomId, isPublic ? 10 : 50);
+        } else {
+            // Fallback to DB if cache initialization failed
+            const query = db.select()
+                .from(messages)
+                .where(eq(messages.chatRoomId, roomId))
+                .orderBy(desc(messages.timestamp));
 
-        const fetchedMessages = await query;
+            if (isPublic) {
+                query.limit(10);
+            } else {
+                query.limit(50);
+            }
+
+            fetchedMessages = (await query).reverse();
+        }
 
         const response: GetMessagesResponse = {
             success: true,
-            messages: fetchedMessages.reverse()
+            messages: fetchedMessages
         };
 
         return new Response(
@@ -83,8 +132,8 @@ export async function GET({ request, locals }) {
                 headers: { 'Content-Type': 'application/json' }
             }
         );
-    } catch {
-        console.log('[Chat] Error fetching messages');
+    } catch (error) {
+        console.log('[Chat] Error fetching messages:', error);
         const errorResponse: GetMessagesResponse = {
             success: false,
             error: 'Failed to fetch messages'
@@ -187,6 +236,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             timestamp: Date.now()
         };
 
+        // Save to DB
         await db.insert(messages).values(newMessage);
         console.log('[Chat] Message saved in DB', { 
             messageId: newMessage.id,
@@ -194,6 +244,11 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             type: newMessage.type,
             timestamp: newMessage.timestamp
         });
+
+        // Add to cache if initialized
+        if (isCacheInitialized) {
+            messageCache.addMessage(newMessage);
+        }
 
         // Broadcast the new message via the unified SSE emitter
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });
