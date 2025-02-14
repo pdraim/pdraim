@@ -1,20 +1,37 @@
 import type { RequestEvent } from '@sveltejs/kit';
 
+const isDev = import.meta.env.DEV;
+
 // Rate limit configuration by endpoint type
 const RATE_LIMITS = {
     // Authentication endpoints (login, register)
-    auth: { points: 20, durationMs: 5 * 60 * 1000 }, // 20 requests per 5 minutes
+    auth: { 
+        points: isDev ? 1000 : 20, 
+        durationMs: 5 * 60 * 1000 
+    },
     
     // Public endpoints (public chat, rooms)
-    public: { points: 30, durationMs: 60 * 1000 }, // 30 requests per minute
+    public: { 
+        points: isDev ? 1000 : 30, 
+        durationMs: 60 * 1000 
+    },
     
     // Protected endpoints (authenticated API calls)
-    protected: { points: 100, durationMs: 60 * 1000 }, // 100 requests per minute
+    protected: { 
+        points: isDev ? 1000 : 100, 
+        durationMs: 60 * 1000 
+    },
     
     // SSE endpoints - separate limits for authenticated and unauthenticated users
     sse: {
-        authenticated: { points: 100, durationMs: 60 * 1000 }, // 10 connections per minute for logged in users
-        unauthenticated: { points: 10, durationMs: 60 * 1000 } // 2 connections per minute for public users
+        authenticated: { 
+            points: isDev ? 1000 : 100, 
+            durationMs: 60 * 1000 
+        },
+        unauthenticated: { 
+            points: isDev ? 1000 : 10, 
+            durationMs: 60 * 1000 
+        }
     }
 } as const;
 
@@ -49,6 +66,11 @@ function getEndpointType(pathname: string, isPublic: boolean): keyof typeof RATE
 }
 
 function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS, isAuthenticated: boolean = false): { limited: boolean; retryAfter?: number } {
+    // Skip rate limiting completely in development for localhost
+    if (isDev && (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost')) {
+        return { limited: false };
+    }
+
     const now = Date.now();
     
     // Handle SSE endpoints differently based on authentication status

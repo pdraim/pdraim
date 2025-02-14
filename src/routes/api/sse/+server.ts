@@ -95,7 +95,7 @@ if (typeof process !== 'undefined') {
     });
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ request, locals }) => {
     if (!locals.user) {
         return new Response('Unauthorized', { status: 401 });
     }
@@ -145,6 +145,12 @@ export const GET: RequestHandler = async ({ locals }) => {
             };
 
             sseEmitter.addListener('sse', onSSE);
+            request.signal.addEventListener('abort', () => {
+                if (onSSE) {
+                    sseEmitter.removeListener('sse', onSSE);
+                    console.log('[SSE] Removed listener due to abort signal.');
+                }
+            });
             console.log('[SSE] Added new listener');
 
             // Send initial connection message

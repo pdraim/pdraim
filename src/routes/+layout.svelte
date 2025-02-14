@@ -7,6 +7,7 @@
 	let { children, data } = $props();
 	let isVisible = $state(true);
 	let statusInterval = $state<number | undefined>(undefined);
+	let lastUserUpdate = $state<string | null>(null);
 
 	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
 		if (!data.user?.id) return;
@@ -112,6 +113,15 @@
 
 	$effect(() => {
 		if (!browser) return;
+		
+		const currentUserJson = data.user ? JSON.stringify(data.user) : null;
+		if (currentUserJson === lastUserUpdate) {
+			console.debug('Skipping duplicate user update');
+			return;
+		}
+		
+		lastUserUpdate = currentUserJson;
+		
 		console.debug('Layout reactive update - Session state:', {
 			timestamp: new Date().toISOString(),
 			hasUser: !!data.user,
@@ -128,11 +138,12 @@
 			cookiePresent: document.cookie.includes('session='),
 			isVisible
 		});
-	});
-
-	$effect(() => {
-		console.debug('Updating global chatState with data.user:', data.user);
-		chatState.setCurrentUser(data.user);
+		
+		// Only update chat state if we have valid session data
+		if (data.session?.id) {
+			console.debug('Updating global chatState with data.user:', data.user);
+			chatState.setCurrentUser(data.user);
+		}
 	});
 </script>
 

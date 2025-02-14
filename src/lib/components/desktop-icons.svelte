@@ -9,12 +9,10 @@
     }
 
     function handleChatRoomClick() {
-        console.log('handleChatRoomClick');
         showChatRoom = true
     }
 
     function handleAuthClick() {
-        console.log('handleAuthClick');
         showAuth = true;
     }
 </script>

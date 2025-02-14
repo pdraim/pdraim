@@ -62,6 +62,10 @@ function handleClose() {
 let messages = $state<EnrichedMessage[]>([]);
 let onlineUsers = $state<User[]>([]);
 let currentUser = $state<User | null>(null);
+let isLoadingMore = $state(false);
+let hasMoreMessages = $state(true);
+let oldestMessageTimestamp = $state<number | null>(null);
+let currentRoomId = $state(DEFAULT_CHAT_ROOM_ID);
 
 // Compute visible messages based on login status
 let visibleMessages = $derived((() => {
@@ -82,6 +86,7 @@ $effect(() => {
   const user = chatState.getCurrentUser();
   if (user?.id !== currentUser?.id) {
     currentUser = user;
+    hasMoreMessages = true; // Reset when user changes
   }
   
   // Check for SSE errors
@@ -89,10 +94,15 @@ $effect(() => {
   sseError = error;
   sseRetryAfter = retryAfter;
   
-  // Only update messages if we have new ones
+  // Update messages if there's any difference
   const stateMessages = chatState.getMessages();
-  if (stateMessages.length !== messages.length) {
+  if (JSON.stringify(stateMessages) !== JSON.stringify(messages)) {
     messages = stateMessages;
+    
+    // Update oldest message timestamp
+    if (messages.length > 0) {
+      oldestMessageTimestamp = Math.min(...messages.map(m => m.timestamp));
+    }
     
     // Scroll to bottom when new messages arrive
     const chatArea = document.querySelector('.chat-area');
@@ -128,15 +138,17 @@ $effect(() => {
       ])
       .then(([roomData, messagesData]) => {
         if (roomData.success) {
-          // First update the chat state with the buddy list
-          chatState.updateUserCache(roomData.buddyList);
+          // Update both the chat state and local state with the buddy list
+          chatState.updateOnlineUsers(roomData.buddyList);
           onlineUsers = roomData.buddyList;
+          console.debug('Updated public buddy list:', roomData.buddyList);
         }
         
         // Then update messages after buddy list is cached
         if (messagesData.success && messagesData.messages) {
           chatState.updateMessages(messagesData.messages);
           messages = chatState.enrichMessages(messagesData.messages);
+          console.debug('Updated public messages:', messages);
         }
       })
       .catch(error => {
@@ -277,6 +289,54 @@ function handleMaximizeEvent(event: CustomEvent<{
   windowX = event.detail.x;
   windowY = event.detail.y;
 }
+
+async function handleScroll(event: Event) {
+    const chatArea = event.target as HTMLElement;
+    const { scrollTop } = chatArea;
+    
+    // Check if we've scrolled near the top (within 100px) and not already loading
+    if (scrollTop < 100 && !isLoadingMore && hasMoreMessages) {
+        isLoadingMore = true;
+        console.debug('Loading more messages...', { oldestMessageTimestamp });
+        
+        try {
+            const response = await fetch(`/api/chat/messages?${new URLSearchParams({
+                before: oldestMessageTimestamp?.toString() || '',
+                roomId: currentRoomId,
+                ...(currentUser ? {} : { public: 'true' })
+            })}`);
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    if (data.messages.length === 0) {
+                        hasMoreMessages = false;
+                    } else {
+                        // Preserve scroll position
+                        const oldHeight = chatArea.scrollHeight;
+                        
+                        // Update messages
+                        chatState.prependMessages(data.messages);
+                        
+                        // After the DOM updates, adjust scroll position
+                        setTimeout(() => {
+                            const newHeight = chatArea.scrollHeight;
+                            chatArea.scrollTop = newHeight - oldHeight;
+                        }, 0);
+                        
+                        // Update oldest timestamp
+                        const newOldest = Math.min(...data.messages.map((m: Message) => m.timestamp));
+                        oldestMessageTimestamp = newOldest;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading more messages:', error);
+        } finally {
+            isLoadingMore = false;
+        }
+    }
+}
 </script>
 
 {#if showChatRoom}
@@ -351,7 +411,13 @@ function handleMaximizeEvent(event: CustomEvent<{
       <div 
         class="sunken-panel chat-area"
         style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
+        onscroll={(e) => handleScroll(e)}
       >
+        {#if isLoadingMore}
+            <div class="loading-messages">
+                Loading more messages...
+            </div>
+        {/if}
         {#each visibleMessages as message (message.id)}
           <div class="message {message.type} text">
             {#if message.type === 'emote'}
@@ -690,5 +756,15 @@ function handleMaximizeEvent(event: CustomEvent<{
     height: 2px;
     background: #e65100;
     transition: width 0.1s linear;
+  }
+
+  .loading-messages {
+    text-align: center;
+    padding: 1rem;
+    color: #666;
+    font-style: italic;
+    background: rgba(0, 0, 0, 0.05);
+    margin-bottom: 1rem;
+    border-radius: 4px;
   }
 </style>

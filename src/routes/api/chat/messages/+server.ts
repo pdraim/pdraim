@@ -10,7 +10,7 @@ import type {
 import { desc } from 'drizzle-orm';
 import { error } from '@sveltejs/kit';
 import { sseEmitter } from '$lib/sseEmitter';
-import { eq } from 'drizzle-orm';
+import { eq, lt, and } from 'drizzle-orm';
 import { chatRooms, DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { ensureDefaultChatRoom } from '$lib/db/schema';
@@ -78,8 +78,10 @@ async function initializeCache() {
 
 // GET endpoint: fetch messages from cache or DB
 export async function GET({ request, locals }) {
-    const isPublic = new URL(request.url).searchParams.get('public') === 'true';
-    const roomId = new URL(request.url).searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
+    const url = new URL(request.url);
+    const isPublic = url.searchParams.get('public') === 'true';
+    const roomId = url.searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
+    const beforeTimestamp = url.searchParams.get('before');
     
     if (!isPublic && !locals.user) {
         throw error(401, 'Authentication required');
@@ -94,19 +96,48 @@ export async function GET({ request, locals }) {
             if (!isCacheInitialized) {
                 await initializeCache();
             }
-            console.log('[Chat] Fetching public messages from cache', { roomId });
-            fetchedMessages = messageCache.getMessages(roomId, 10);
+            
+            if (beforeTimestamp) {
+                // For public users requesting older messages, fetch from DB with limit
+                console.log('[Chat] Fetching public messages from DB before timestamp:', beforeTimestamp);
+                const query = db.select()
+                    .from(messages)
+                    .where(and(
+                        eq(messages.chatRoomId, roomId),
+                        lt(messages.timestamp, parseInt(beforeTimestamp))
+                    ))
+                    .orderBy(desc(messages.timestamp))
+                    .limit(10);
+                fetchedMessages = (await query).reverse();
+            } else {
+                console.log('[Chat] Fetching public messages from cache', { roomId });
+                fetchedMessages = messageCache.getMessages(roomId, 10);
+            }
         } else {
             if (!locals.user) {
                 throw error(401, 'Authentication required');
             }
-            console.log('[Chat] Fetching messages from DB for instant chat', { roomId });
-            const query = db.select()
-                .from(messages)
-                .where(eq(messages.chatRoomId, roomId))
-                .orderBy(desc(messages.timestamp))
-                .limit(50);
-            fetchedMessages = (await query).reverse();
+            
+            if (beforeTimestamp) {
+                console.log('[Chat] Fetching messages from DB before timestamp:', beforeTimestamp);
+                const query = db.select()
+                    .from(messages)
+                    .where(and(
+                        eq(messages.chatRoomId, roomId),
+                        lt(messages.timestamp, parseInt(beforeTimestamp))
+                    ))
+                    .orderBy(desc(messages.timestamp))
+                    .limit(100);
+                fetchedMessages = (await query).reverse();
+            } else {
+                console.log('[Chat] Fetching messages from DB for instant chat', { roomId });
+                const query = db.select()
+                    .from(messages)
+                    .where(eq(messages.chatRoomId, roomId))
+                    .orderBy(desc(messages.timestamp))
+                    .limit(50);
+                fetchedMessages = (await query).reverse();
+            }
         }
 
         const response: GetMessagesResponse = {
@@ -232,6 +263,13 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             chatRoomId: newMessage.chatRoomId,
             type: newMessage.type,
             timestamp: newMessage.timestamp
+        });
+
+        // Update message cache
+        messageCache.addMessage(newMessage);
+        console.debug('[Chat] Message added to cache', {
+            messageId: newMessage.id,
+            chatRoomId: newMessage.chatRoomId
         });
 
         // Broadcast the new message via the unified SSE emitter

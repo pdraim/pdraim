@@ -4,6 +4,7 @@
     import type { RegisterResponse, RegisterResponseError } from '$lib/types/payloads';
     import type { User } from '$lib/types/chat';
     import { invalidateAll } from '$app/navigation';
+    import { chatState } from '$lib/states/chat.svelte';
     
     let { onLoginSuccess, showAuth = $bindable() }: { onLoginSuccess?: (user: User) => void, showAuth:Boolean } = $props();
     
@@ -57,6 +58,7 @@
             }
 
             console.debug("Login succeeded:", data);
+            await chatState.setCurrentUser(data.user);
             loginStatus = 'success';
             
             // Call the callback prop if provided
@@ -132,7 +134,7 @@
                 return;
             }
             console.debug("Auto login after registration succeeded:", data);
-
+            await chatState.setCurrentUser(data.user);
             onLoginSuccess?.(data.user);
             setTimeout(() => {
                 console.debug("Auto closing AIM Login component after auto login on registration");
