@@ -58,7 +58,7 @@ export async function GET({ request, locals }) {
         // Ensure default chat room exists
         await ensureDefaultChatRoom(db);
         
-        console.debug('Fetching messages', { isPublic });
+        console.log('[Chat] Fetching messages', { isPublic });
         const query = db.select()
             .from(messages)
             .orderBy(desc(messages.timestamp));
@@ -83,8 +83,8 @@ export async function GET({ request, locals }) {
                 headers: { 'Content-Type': 'application/json' }
             }
         );
-    } catch (error) {
-        console.debug('Error fetching messages:', error);
+    } catch {
+        console.log('[Chat] Error fetching messages');
         const errorResponse: GetMessagesResponse = {
             success: false,
             error: 'Failed to fetch messages'
@@ -105,12 +105,13 @@ export async function POST({ request, locals }: { request: Request, locals: App.
         throw error(401, 'Authentication required');
     }
 
-    console.debug('Received new message POST');
+    console.log('[Chat] New message received');
     try {
         // Check rate limiting
         const { canSend, retryAfter } = updateUserCooldown(locals.user.id);
         if (!canSend) {
-            console.debug('Rate limited:', { userId: locals.user.id, retryAfter });
+            const maskedUserId = `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}`;
+            console.log('[Chat] Rate limited:', { userId: maskedUserId, retryAfter });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Please wait before sending another message',
@@ -131,7 +132,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         const data = await request.json() as SendMessageRequest;
         if (!data.content || !data.userId) {
-            console.debug('Invalid payload', data);
+            console.log('[Chat] Invalid payload received');
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Invalid message payload'
@@ -153,7 +154,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             .get();
 
         if (!chatRoom) {
-            console.debug('Chat room not found:', chatRoomId);
+            console.log('[Chat] Chat room not found:', chatRoomId);
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Chat room not found'
@@ -168,7 +169,8 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             .get();
 
         if (!user) {
-            console.debug('User not found:', data.userId);
+            const maskedUserId = `${data.userId.slice(0, 4)}...${data.userId.slice(-4)}`;
+            console.log('[Chat] User not found:', maskedUserId);
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'User not found'
@@ -186,7 +188,12 @@ export async function POST({ request, locals }: { request: Request, locals: App.
         };
 
         await db.insert(messages).values(newMessage);
-        console.debug('Message saved in DB', newMessage);
+        console.log('[Chat] Message saved in DB', { 
+            messageId: newMessage.id,
+            chatRoomId: newMessage.chatRoomId,
+            type: newMessage.type,
+            timestamp: newMessage.timestamp
+        });
 
         // Broadcast the new message via the unified SSE emitter
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });
@@ -203,8 +210,8 @@ export async function POST({ request, locals }: { request: Request, locals: App.
                 headers: { 'Content-Type': 'application/json' } 
             }
         );
-    } catch (error) {
-        console.debug('Error processing POST:', error);
+    } catch {
+        console.log('[Chat] Error processing message');
         const errorResponse: SendMessageResponse = {
             success: false,
             error: 'Failed to save message'

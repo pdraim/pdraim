@@ -4,7 +4,7 @@ import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { eq, and, lt } from 'drizzle-orm';
 
-console.debug('SSE connection initiated');
+console.log('[SSE] Server initialized');
 
 // Constants for timeout checks
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
@@ -13,7 +13,7 @@ const CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
 // Initialize periodic check for timed out users
 const timeoutInterval = setInterval(async () => {
     const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
-    console.debug('Checking for timed out users, threshold:', new Date(timeoutThreshold));
+    console.log('[SSE] Checking for timed out users', { checkTime: new Date().toISOString() });
 
     try {
         // Find and update users who are marked as online but haven't been seen recently
@@ -33,6 +33,7 @@ const timeoutInterval = setInterval(async () => {
 
         // Broadcast status updates for timed out users
         result.forEach(user => {
+            const maskedUserId = `${user.id.slice(0, 4)}...${user.id.slice(-4)}`;
             sseEmitter.emit('sse', {
                 type: 'userStatusUpdate',
                 data: {
@@ -41,10 +42,10 @@ const timeoutInterval = setInterval(async () => {
                     lastSeen: now
                 }
             });
-            console.debug('User timed out and marked offline:', user.id);
+            console.log('[SSE] User timed out and marked offline:', maskedUserId);
         });
-    } catch (error) {
-        console.debug('Error during timeout check:', error);
+    } catch {
+        console.log('[SSE] Error during timeout check');
     }
 }, CHECK_INTERVAL_MS);
 
@@ -91,9 +92,12 @@ export const GET: RequestHandler = async ({ locals }) => {
                     const payload = `event: ${event.type}\n` +
                                     `data: ${JSON.stringify(event.data)}\n\n`;
                     controller.enqueue(encoder.encode(payload));
-                    console.debug('Sent SSE event:', event);
-                } catch (err) {
-                    console.debug('Error sending SSE event:', err);
+                    // Only log non-sensitive event types
+                    if (!['userStatusUpdate', 'chatMessage'].includes(event.type)) {
+                        console.log('[SSE] Event sent:', { type: event.type });
+                    }
+                } catch {
+                    console.log('[SSE] Error sending event');
                 }
             };
 
@@ -102,7 +106,7 @@ export const GET: RequestHandler = async ({ locals }) => {
             };
 
             sseEmitter.addListener('sse', onSSE);
-            console.debug('Added SSE listener');
+            console.log('[SSE] Added new listener');
 
             // Send initial connection message
             controller.enqueue(encoder.encode('data: Connected\n\n'));
@@ -119,7 +123,8 @@ export const GET: RequestHandler = async ({ locals }) => {
         async cancel(reason) {
             if (keepAliveInterval) clearInterval(keepAliveInterval);
             if (onSSE) sseEmitter.removeListener('sse', onSSE);
-            console.debug('SSE connection cancelled:', reason);
+            const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
+            console.log('[SSE] Connection closed:', { userId: maskedUserId, reason });
 
             // Update user status to offline in the database
             const now = Date.now();

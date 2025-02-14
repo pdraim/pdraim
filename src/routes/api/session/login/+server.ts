@@ -24,7 +24,7 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
-    console.debug("POST /api/session/login called");
+    console.log("[Login] New login attempt received");
 
     if (request.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' } as LoginResponseError), { status: 405 });
@@ -32,28 +32,29 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
     // Get the IP address for rate limiting
     const ip = request.headers.get('x-forwarded-for') || 'unknown';
+    const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
     const now = Date.now();
     const attemptData = loginAttempts.get(ip) || { count: 0, lastAttempt: 0 };
 
     // If the user has failed three or more times, apply exponential backoff
     if (attemptData.count >= MAX_ATTEMPTS) {
         const delay = Math.pow(2, attemptData.count - MAX_ATTEMPTS + 1) * 1000; // delay in milliseconds
-        console.debug(`Applying exponential backoff delay of ${delay}ms for IP ${ip}`);
+        console.log(`[Login] Rate limit exceeded for IP ${maskedIp} - applying ${delay}ms delay`);
         await sleep(delay);
     }
 
     let body: unknown;
     try {
         body = await request.json();
-    } catch (err) {
-        console.debug("Invalid JSON", err);
+    } catch {
+        console.log("[Login] Invalid JSON payload received");
         return new Response(JSON.stringify({ error: 'Invalid JSON' } as LoginResponseError), { status: 400 });
     }
 
     const { username, password } = body as { username: string, password: string };
 
     if (typeof username !== 'string' || typeof password !== 'string') {
-        console.debug("Missing or invalid input fields", { username, password });
+        console.log("Missing or invalid input fields", { username, password });
         return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError), { status: 400 });
     }
 
@@ -66,7 +67,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         attemptData.count++;
         attemptData.lastAttempt = now;
         loginAttempts.set(ip, attemptData);
-        console.debug(`Login failed for IP ${ip}. Attempt count: ${attemptData.count}`);
+        console.log(`[Login] Login failed for IP ${maskedIp}. Attempt count: ${attemptData.count}`);
         const remaining = Math.max(0, MAX_ATTEMPTS - attemptData.count);
         return new Response(JSON.stringify({ 
             error: `Invalid username or password. ${remaining > 0 ? remaining + " attempt(s) remaining." : "Please wait before trying again."}` 
@@ -80,14 +81,14 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             attemptData.count++;
             attemptData.lastAttempt = now;
             loginAttempts.set(ip, attemptData);
-            console.debug(`Login failed for IP ${ip}. Attempt count: ${attemptData.count}`);
+            console.log(`[Login] Login failed for IP ${maskedIp}. Attempt count: ${attemptData.count}`);
             const remaining = Math.max(0, MAX_ATTEMPTS - attemptData.count);
             return new Response(JSON.stringify({ 
                 error: `Invalid username or password. ${remaining > 0 ? remaining + " attempt(s) remaining." : "Please wait before trying again."}` 
             } as LoginResponseError), { status: 401 });
         }
-    } catch (err) {
-        console.debug("Error verifying password", err);
+    } catch {
+        console.log("[Login] Error verifying password");
         return new Response(JSON.stringify({ error: 'Internal Server Error' } as LoginResponseError), { status: 500 });
     }
 
