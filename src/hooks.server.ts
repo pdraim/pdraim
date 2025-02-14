@@ -59,18 +59,30 @@ export const handle: Handle = async ({ event, resolve }) => {
         "/api/session/validate",
         "/api/register",
         "/login",
-        "/register"
+        "/register",
+        "/api/sse"
     ];
     
     // Get session token from cookies
     const token = event.cookies.get("session") ?? null;
+
+    // Add debug headers for SSE requests
+    const addDebugHeaders = (response: Response) => {
+        if (event.url.pathname.startsWith('/api/sse')) {
+            response.headers.set('X-Debug-Has-Token', Boolean(token).toString());
+            response.headers.set('X-Debug-Token-Length', token ? token.length.toString() : '0');
+            response.headers.set('X-Debug-Cookie-Count', event.cookies.getAll().length.toString());
+        }
+        return response;
+    };
 
     // Handle public requests separately: always clear session
     if (isPublicChatRequest || isPublicRoomRequest) {
         console.debug("Public request accessed:", event.url.pathname);
         event.locals.user = null;
         event.locals.session = null; // Public access doesn't require a session
-        return resolve(event);
+        const response = await resolve(event);
+        return addDebugHeaders(response);
     }
     
     // Handle public routes: if token exists, validate and propagate
@@ -85,7 +97,8 @@ export const handle: Handle = async ({ event, resolve }) => {
                 event.locals.user = user;
             }
         }
-        return resolve(event);
+        const response = await resolve(event);
+        return addDebugHeaders(response);
     }
 
     // Protected routes: ensure authentication
@@ -93,7 +106,8 @@ export const handle: Handle = async ({ event, resolve }) => {
         console.debug("No session token found");
         event.locals.user = null;
         event.locals.session = null;
-        return new Response("Unauthorized", { status: 401 });
+        const response = new Response("Unauthorized", { status: 401 });
+        return addDebugHeaders(response);
     }
     
     const { session, user } = await validateSessionToken(token);
@@ -102,12 +116,14 @@ export const handle: Handle = async ({ event, resolve }) => {
         setSessionTokenCookie(event, token, session.expiresAt);
         event.locals.session = session;
         event.locals.user = user;
-        return resolve(event);
+        const response = await resolve(event);
+        return addDebugHeaders(response);
     } else {
         console.debug("Invalid session token");
         deleteSessionTokenCookie(event);
         event.locals.session = null;
         event.locals.user = null;
-        return new Response("Unauthorized", { status: 401 });
+        const response = new Response("Unauthorized", { status: 401 });
+        return addDebugHeaders(response);
     }
 }; 

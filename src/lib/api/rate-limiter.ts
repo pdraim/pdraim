@@ -133,7 +133,16 @@ export async function handleRateLimit(event: RequestEvent): Promise<Response | n
     const { limited, retryAfter } = isRateLimited(ip, endpointType, isAuthenticated);
     
     if (limited) {
-        console.debug(`Rate limit hit for ${ip} on ${url.pathname} (${endpointType})`);
+        // Create debug headers
+        const debugHeaders = {
+            'X-Debug-Is-Authenticated': isAuthenticated.toString(),
+            'X-Debug-Has-User': Boolean(event.locals.user).toString(),
+            'X-Debug-Has-Session': Boolean(event.locals.session).toString(),
+            'X-Debug-Endpoint-Type': endpointType,
+            'X-Debug-Rate-Limit-Points': isAuthenticated 
+                ? RATE_LIMITS.sse.authenticated.points.toString()
+                : RATE_LIMITS.sse.unauthenticated.points.toString(),
+        };
         
         // Construct a user-friendly error message
         let errorMessage = 'Too many requests. ';
@@ -151,12 +160,22 @@ export async function handleRateLimit(event: RequestEvent): Promise<Response | n
             error: errorMessage,
             retryAfter: Math.ceil((retryAfter || 0) / 1000),
             endpointType,
-            isAuthenticated
+            isAuthenticated,
+            debug: {
+                isAuthenticated,
+                hasUser: Boolean(event.locals.user),
+                hasSession: Boolean(event.locals.session),
+                endpointType,
+                rateLimitPoints: isAuthenticated 
+                    ? RATE_LIMITS.sse.authenticated.points
+                    : RATE_LIMITS.sse.unauthenticated.points
+            }
         }), {
             status: 429,
             headers: {
                 'Content-Type': 'application/json',
-                'Retry-After': Math.ceil((retryAfter || 0) / 1000).toString()
+                'Retry-After': Math.ceil((retryAfter || 0) / 1000).toString(),
+                ...debugHeaders
             }
         });
     }
