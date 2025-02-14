@@ -49,9 +49,11 @@ const timeoutInterval = setInterval(async () => {
 }, CHECK_INTERVAL_MS);
 
 // Ensure the interval is cleared if the module is reloaded
-process.on('beforeExit', () => {
-    if (timeoutInterval) clearInterval(timeoutInterval);
-});
+if (typeof process !== 'undefined' && process.on) {
+    process.on('beforeExit', () => {
+        if (timeoutInterval) clearInterval(timeoutInterval);
+    });
+}
 
 export const GET: RequestHandler = async ({ locals }) => {
     if (!locals.user) {
