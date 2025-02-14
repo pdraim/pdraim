@@ -15,6 +15,38 @@ import { chatRooms, DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { ensureDefaultChatRoom } from '$lib/db/schema';
 
+// Rate limiting configuration
+const INITIAL_COOLDOWN = 1000; // 1 second
+const MAX_COOLDOWN = 30000; // 30 seconds
+const userMessageTimestamps = new Map<string, { lastMessageTime: number; currentCooldown: number }>();
+
+function updateUserCooldown(userId: string): { canSend: boolean; retryAfter?: number } {
+    const now = Date.now();
+    const userState = userMessageTimestamps.get(userId) || { lastMessageTime: 0, currentCooldown: INITIAL_COOLDOWN };
+    
+    // Check if enough time has passed since the last message
+    const timeSinceLastMessage = now - userState.lastMessageTime;
+    if (timeSinceLastMessage < userState.currentCooldown) {
+        return { 
+            canSend: false, 
+            retryAfter: userState.currentCooldown - timeSinceLastMessage 
+        };
+    }
+
+    // Reset cooldown if it's been long enough
+    if (timeSinceLastMessage > userState.currentCooldown * 2) {
+        userState.currentCooldown = INITIAL_COOLDOWN;
+    } else {
+        // Exponential backoff
+        userState.currentCooldown = Math.min(userState.currentCooldown * 2, MAX_COOLDOWN);
+    }
+
+    userState.lastMessageTime = now;
+    userMessageTimestamps.set(userId, userState);
+    
+    return { canSend: true };
+}
+
 // GET endpoint: fetch messages from the DB
 export async function GET({ request, locals }) {
     const isPublic = new URL(request.url).searchParams.get('public') === 'true';
@@ -75,6 +107,25 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
     console.debug('Received new message POST');
     try {
+        // Check rate limiting
+        const { canSend, retryAfter } = updateUserCooldown(locals.user.id);
+        if (!canSend) {
+            console.debug('Rate limited:', { userId: locals.user.id, retryAfter });
+            const errorResponse: SendMessageResponse = {
+                success: false,
+                error: 'Please wait before sending another message',
+                retryAfter,
+                isRateLimited: true
+            };
+            return new Response(JSON.stringify(errorResponse), { 
+                status: 429,
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Retry-After': Math.ceil(retryAfter! / 1000).toString()
+                }
+            });
+        }
+
         // Ensure default chat room exists
         await ensureDefaultChatRoom(db);
 

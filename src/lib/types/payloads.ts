@@ -54,6 +54,8 @@ export interface SendMessageResponseSuccess {
 export interface SendMessageResponseError {
     success: false;
     error: string;
+    retryAfter?: number; // Time in ms until next allowed message
+    isRateLimited?: boolean;
 }
 
 export type SendMessageResponse = SendMessageResponseSuccess | SendMessageResponseError;

@@ -21,6 +21,37 @@ let currentMessage = $state('');
 let showUserList = $state(false);
 let isMaximized = $state(false);
 
+// Rate limiting state
+let cooldownEndTime = $state<number | null>(null);
+let cooldownProgress = $state(0);
+let cooldownInterval: ReturnType<typeof setInterval> | null = null;
+let rateLimitWarning = $state<string | null>(null);
+
+function updateCooldownProgress() {
+  if (!cooldownEndTime) return;
+  
+  const now = Date.now();
+  if (now >= cooldownEndTime) {
+    cooldownEndTime = null;
+    cooldownProgress = 0;
+    rateLimitWarning = null;
+    if (cooldownInterval) {
+      clearInterval(cooldownInterval);
+      cooldownInterval = null;
+    }
+    return;
+  }
+  
+  cooldownProgress = ((cooldownEndTime - now) / 1000);
+}
+
+function startCooldownTimer(retryAfter: number) {
+  cooldownEndTime = Date.now() + retryAfter;
+  if (cooldownInterval) clearInterval(cooldownInterval);
+  cooldownInterval = setInterval(updateCooldownProgress, 100);
+  updateCooldownProgress();
+}
+
 let { showChatRoom = $bindable() } = $props();
 
 function handleClose() {
@@ -42,12 +73,21 @@ let visibleMessages = $derived((() => {
   return result;
 })());
 
-// Single effect to handle all state updates
+// Add SSE error state
+let sseError = $state<string | null>(null);
+let sseRetryAfter = $state<number | null>(null);
+
+// Update the effect to check for SSE errors
 $effect(() => {
   const user = chatState.getCurrentUser();
   if (user?.id !== currentUser?.id) {
     currentUser = user;
   }
+  
+  // Check for SSE errors
+  const { error, retryAfter } = chatState.getSSEError();
+  sseError = error;
+  sseRetryAfter = retryAfter;
   
   // Only update messages if we have new ones
   const stateMessages = chatState.getMessages();
@@ -132,21 +172,35 @@ onMount(() => {
   // Add resize listener
   window.addEventListener('resize', handleResize);
 
-  return () => window.removeEventListener('resize', handleResize);
+  return () => {
+    window.removeEventListener('resize', handleResize);
+    if (cooldownInterval) clearInterval(cooldownInterval);
+  };
 });
 
 // New reactive state to track when a message is being sent
 let isSendingMessage = $state(false);
 
 async function handleSubmit() {
-  if (!currentMessage.trim()) return;
+  if (!currentMessage.trim() || !currentUser || cooldownEndTime) return;
+  
   isSendingMessage = true;
   try {
-    await chatState.sendMessage(currentMessage);
-    currentMessage = '';
+    const response = await chatState.sendMessage(currentMessage);
+    if (!response.success && response.isRateLimited && response.retryAfter) {
+      startCooldownTimer(response.retryAfter);
+      rateLimitWarning = 'Whoa there! You\'re sending messages too quickly. Take a breather...';
+    } else if (!response.success) {
+      rateLimitWarning = response.error || 'Failed to send message. Please try again.';
+      setTimeout(() => rateLimitWarning = null, 3000);
+    } else {
+      currentMessage = '';
+      rateLimitWarning = null;
+    }
   } catch (error) {
     console.error('Failed to send message:', error);
-    alert('Failed to send message. Please try again.');
+    rateLimitWarning = 'Failed to send message. Please try again.';
+    setTimeout(() => rateLimitWarning = null, 3000);
   } finally {
     isSendingMessage = false;
   }
@@ -246,7 +300,12 @@ function handleMaximizeEvent(event: CustomEvent<{
   ondragmove={handleDragMove}
 >
   <div class="title-bar">
-    <div class="title-bar-text">Pdr Aim - {currentUser?.nickname}</div>
+    <div class="title-bar-text">
+      Pdr Aim - {currentUser?.nickname}
+      {#if sseError}
+        <span class="connection-error">⚠️ Connection Error</span>
+      {/if}
+    </div>
     <div class="title-bar-controls">
       {#if !isMobile}
         <button aria-label="Minimize"></button>
@@ -266,8 +325,29 @@ function handleMaximizeEvent(event: CustomEvent<{
   </div>
 
   <div class="window-body" style="display: flex; height: calc(100% - 2rem); margin: 0; padding: 0.5rem;">
+    <!-- Add error message display -->
+    {#if sseError}
+      <div class="error-banner">
+        {sseError}
+        {#if sseRetryAfter}
+          <br>
+          <small>Retrying in {Math.ceil(sseRetryAfter)}s...</small>
+        {/if}
+      </div>
+    {/if}
+    
     <!-- Chat content area -->
     <div class="chat-container" style="flex: 1; display: flex; flex-direction: column; margin-right: 0.5rem;">
+      <!-- Add rate limit warning -->
+      {#if rateLimitWarning}
+        <div class="rate-limit-warning" class:with-progress={cooldownEndTime}>
+          <span>{rateLimitWarning}</span>
+          {#if cooldownEndTime}
+            <small>You can send another message in {cooldownProgress.toFixed(1)}s</small>
+          {/if}
+        </div>
+      {/if}
+
       <div 
         class="sunken-panel chat-area"
         style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
@@ -297,16 +377,19 @@ function handleMaximizeEvent(event: CustomEvent<{
           bind:value={currentMessage}
           style="flex: 1;"
           onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder="Type a message..."
-          disabled={!currentUser}
+          placeholder={cooldownEndTime ? `Wait ${cooldownProgress.toFixed(1)}s...` : "Type a message..."}
+          disabled={!currentUser || Boolean(cooldownEndTime)}
         />
         <LoadingButton 
           onclick={handleSubmit} 
-          disabled={!currentUser} 
+          disabled={!currentUser || Boolean(cooldownEndTime)} 
           loading={isSendingMessage}
-          text="Send"
+          text={cooldownEndTime ? `${cooldownProgress.toFixed(1)}s` : "Send"}
         />
       </div>
+      {#if cooldownEndTime}
+        <div class="cooldown-progress" style="width: {100 - (cooldownProgress * 100 / (cooldownEndTime - Date.now()) * 1000)}%"></div>
+      {/if}
     </div>
 
     <!-- Online users list -->
@@ -527,5 +610,85 @@ function handleMaximizeEvent(event: CustomEvent<{
     font-size: 0.75rem;
     margin-right: 0.5rem;
     font-style: italic;
+  }
+
+  .cooldown-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: #2d31a6;
+    transition: width 0.1s linear;
+  }
+
+  .input-container {
+    position: relative;
+  }
+
+  .connection-error {
+    font-size: 0.75rem;
+    color: #ff4444;
+    margin-left: 0.5rem;
+  }
+
+  .error-banner {
+    position: absolute;
+    top: 2rem;
+    left: 0;
+    right: 0;
+    background: #ffebee;
+    color: #c62828;
+    padding: 0.5rem;
+    text-align: center;
+    z-index: 100;
+    border-bottom: 1px solid #ffcdd2;
+    font-size: 0.875rem;
+  }
+
+  .error-banner small {
+    color: #666;
+  }
+
+  .rate-limit-warning {
+    background: #fff3e0;
+    color: #e65100;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    animation: slideIn 0.3s ease-out;
+    border: 1px solid #ffe0b2;
+  }
+
+  .rate-limit-warning.with-progress {
+    border-left: 4px solid #e65100;
+  }
+
+  .rate-limit-warning small {
+    color: #666;
+    font-size: 0.75rem;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateY(-100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .cooldown-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: #e65100;
+    transition: width 0.1s linear;
   }
 </style>

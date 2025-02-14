@@ -11,8 +11,11 @@ const RATE_LIMITS = {
     // Protected endpoints (authenticated API calls)
     protected: { points: 100, durationMs: 60 * 1000 }, // 100 requests per minute
     
-    // SSE endpoints
-    sse: { points: 2, durationMs: 60 * 1000 } // 2 connections per minute
+    // SSE endpoints - separate limits for authenticated and unauthenticated users
+    sse: {
+        authenticated: { points: 100, durationMs: 60 * 1000 }, // 10 connections per minute for logged in users
+        unauthenticated: { points: 10, durationMs: 60 * 1000 } // 2 connections per minute for public users
+    }
 } as const;
 
 // In-memory store for rate limiting
@@ -45,33 +48,57 @@ function getEndpointType(pathname: string, isPublic: boolean): keyof typeof RATE
     return 'protected';
 }
 
-function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS): boolean {
+function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS, isAuthenticated: boolean = false): { limited: boolean; retryAfter?: number } {
     const now = Date.now();
-    const { points, durationMs } = RATE_LIMITS[endpointType];
     
-    // Get or initialize request history for this IP
-    const requests = ipRequests.get(ip) || [];
-    
-    // Clean old requests outside the window
-    const validRequests = requests.filter(req => now - req.timestamp < durationMs);
-    
-    // Check if we're over the limit
-    if (validRequests.length >= points) {
-        console.debug(`Rate limit exceeded for IP ${ip} on ${endpointType} endpoint`);
-        return true;
+    // Handle SSE endpoints differently based on authentication status
+    if (endpointType === 'sse') {
+        const config = isAuthenticated ? RATE_LIMITS.sse.authenticated : RATE_LIMITS.sse.unauthenticated;
+        const { points, durationMs } = config;
+        
+        // Get or initialize request history for this IP
+        const requests = ipRequests.get(ip) || [];
+        
+        // Clean old requests outside the window
+        const validRequests = requests.filter(req => now - req.timestamp < durationMs);
+        
+        // Check if we're over the limit
+        if (validRequests.length >= points) {
+            console.debug(`Rate limit exceeded for IP ${ip} on ${endpointType} endpoint (${isAuthenticated ? 'authenticated' : 'unauthenticated'})`);
+            const oldestRequest = validRequests[0];
+            const retryAfter = durationMs - (now - oldestRequest.timestamp);
+            return { limited: true, retryAfter };
+        }
+        
+        // Add this request
+        validRequests.push({ timestamp: now });
+        ipRequests.set(ip, validRequests);
+        
+        return { limited: false };
     }
     
-    // Add this request
+    // Handle other endpoints
+    const { points, durationMs } = RATE_LIMITS[endpointType];
+    const requests = ipRequests.get(ip) || [];
+    const validRequests = requests.filter(req => now - req.timestamp < durationMs);
+    
+    if (validRequests.length >= points) {
+        const oldestRequest = validRequests[0];
+        const retryAfter = durationMs - (now - oldestRequest.timestamp);
+        return { limited: true, retryAfter };
+    }
+    
     validRequests.push({ timestamp: now });
     ipRequests.set(ip, validRequests);
     
-    return false;
+    return { limited: false };
 }
 
 export async function handleRateLimit(event: RequestEvent): Promise<Response | null> {
     const ip = event.getClientAddress();
     const url = new URL(event.request.url);
     const isPublic = url.searchParams.get('public') === 'true';
+    const isAuthenticated = Boolean(event.locals.user);
     
     // Skip rate limiting for non-API routes
     if (!url.pathname.startsWith('/api')) {
@@ -79,17 +106,33 @@ export async function handleRateLimit(event: RequestEvent): Promise<Response | n
     }
     
     const endpointType = getEndpointType(url.pathname, isPublic);
+    const { limited, retryAfter } = isRateLimited(ip, endpointType, isAuthenticated);
     
-    if (isRateLimited(ip, endpointType)) {
+    if (limited) {
         console.debug(`Rate limit hit for ${ip} on ${url.pathname} (${endpointType})`);
+        
+        // Construct a user-friendly error message
+        let errorMessage = 'Too many requests. ';
+        if (endpointType === 'sse') {
+            errorMessage += isAuthenticated 
+                ? 'Please wait before attempting to reconnect to the chat.'
+                : 'Please wait before attempting to view the public chat again.';
+        } else if (endpointType === 'auth') {
+            errorMessage += 'Please wait before attempting to log in again.';
+        } else {
+            errorMessage += 'Please try again later.';
+        }
+
         return new Response(JSON.stringify({
-            error: 'Too many requests',
-            retryAfter: Math.ceil(RATE_LIMITS[endpointType].durationMs / 1000)
+            error: errorMessage,
+            retryAfter: Math.ceil((retryAfter || 0) / 1000),
+            endpointType,
+            isAuthenticated
         }), {
             status: 429,
             headers: {
                 'Content-Type': 'application/json',
-                'Retry-After': Math.ceil(RATE_LIMITS[endpointType].durationMs / 1000).toString()
+                'Retry-After': Math.ceil((retryAfter || 0) / 1000).toString()
             }
         });
     }

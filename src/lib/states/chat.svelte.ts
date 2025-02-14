@@ -19,6 +19,8 @@ class ChatState {
     private isInitializing = $state(false);
     private currentRoomId = $state<string>(DEFAULT_CHAT_ROOM_ID);
     private userCache = $state<Record<string, User>>({});
+    private sseError = $state<string | null>(null);
+    private sseRetryAfter = $state<number | null>(null);
 
     public async reinitialize() {
         console.debug('Reinitializing chat state...');
@@ -300,11 +302,14 @@ class ChatState {
         }
     }
 
-    async sendMessage(content: string, type: Message['type'] = 'chat') {
+    async sendMessage(content: string, type: Message['type'] = 'chat'): Promise<SendMessageResponse> {
         const user = this.getCurrentUser();
         if (!user) {
             console.debug('Cannot send message: No current user');
-            return;
+            return {
+                success: false,
+                error: 'Not logged in'
+            };
         }
         
         try {
@@ -338,9 +343,13 @@ class ChatState {
 
             console.debug('Message sent successfully:', data.message);
             await invalidate('chat:messages');
+            return data;
         } catch (error) {
             console.debug('Error sending message:', error);
-            throw error;
+            return {
+                success: false,
+                error: 'Failed to send message'
+            };
         }
     }
 
@@ -410,20 +419,45 @@ class ChatState {
         };
     }
 
-    private handleSSEError() {
+    private async handleSSEError() {
         if (this.eventSource) {
             this.eventSource.close();
             this.eventSource = null;
         }
 
+        // Check if the error was due to rate limiting
+        try {
+            const response = await fetch('/api/sse');
+            if (response.status === 429) {
+                const data = await response.json();
+                this.sseError = data.error;
+                this.sseRetryAfter = data.retryAfter;
+                
+                // Set up automatic retry after the rate limit expires
+                setTimeout(() => {
+                    this.sseError = null;
+                    this.sseRetryAfter = null;
+                    this.reconnectSSE();
+                }, data.retryAfter * 1000);
+                
+                return;
+            }
+        } catch (error) {
+            console.debug('Error checking SSE status:', error);
+        }
+
+        // Handle other types of errors with exponential backoff
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.sseError = `Connection lost. Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`;
             console.debug(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
+            
             setTimeout(() => {
                 this.reconnectAttempts++;
                 this.reconnectDelay *= 2; // Exponential backoff
                 this.connectSSE();
             }, this.reconnectDelay);
         } else {
+            this.sseError = 'Unable to connect to chat. Please refresh the page to try again.';
             console.debug('Max reconnection attempts reached');
         }
     }
@@ -431,6 +465,8 @@ class ChatState {
     private reconnectSSE() {
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
+        this.sseError = null;
+        this.sseRetryAfter = null;
         this.connectSSE();
     }
 
@@ -454,6 +490,11 @@ class ChatState {
                 avatarUrl: null
             }
         };
+    }
+
+    // Add getter for SSE error state
+    public getSSEError() {
+        return { error: this.sseError, retryAfter: this.sseRetryAfter };
     }
 }
 
