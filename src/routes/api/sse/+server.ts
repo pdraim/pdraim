@@ -151,15 +151,8 @@ export const GET: RequestHandler = async ({ locals }) => {
             controller.enqueue(encoder.encode('data: Connected\n\n'));
 
             // Keep connection alive and update lastSeen: send a comment every 20 seconds
-            keepAliveInterval = setInterval(async () => {
+            keepAliveInterval = setInterval(() => {
                 controller.enqueue(encoder.encode(':\n\n'));
-                // Update lastSeen timestamp on each keepalive
-                await db.update(users)
-                    .set({ lastSeen: Date.now() })
-                    .where(eq(users.id, userId))
-                    .catch(error => {
-                        console.log('[SSE] Error updating lastSeen on keepalive:', error);
-                    });
             }, 20000);
         },
         async cancel(reason) {
