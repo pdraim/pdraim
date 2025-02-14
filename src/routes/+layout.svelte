@@ -93,23 +93,12 @@
 		// Add visibility change listener
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 
-		// Add beforeunload listener
-		window.addEventListener('beforeunload', cleanup);
-
 		// Cleanup on unmount
 		return () => {
 			window.removeEventListener('beforeunload', cleanup);
-			cleanup();
 		};
 	});
 
-	// Additional safety net for clean navigation within the app
-	onDestroy(() => {
-		if (!browser) return;
-		console.debug('Component being destroyed - Running cleanup');
-		window.removeEventListener('beforeunload', cleanup);
-		cleanup();
-	});
 
 	$effect(() => {
 		if (!browser) return;
