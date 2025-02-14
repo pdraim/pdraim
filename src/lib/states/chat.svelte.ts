@@ -155,7 +155,10 @@ class ChatState {
     }
 
     updateUserStatus(userId: string, status: User['status'], lastSeen?: number) {
-        console.debug('Updating user status with:', { userId, status, lastSeen, 
+        console.debug('Updating user status with:', { 
+            userId, 
+            status, 
+            lastSeen,
             currentCache: this.userCache[userId],
             currentUsers: this.users.find(u => u.id === userId)
         });
@@ -171,11 +174,13 @@ class ChatState {
             }
         }
 
+        const now = Date.now();
         if (user) {
             const updatedUser: User = {
                 ...user,
                 status,
-                lastSeen: status === 'offline' ? (lastSeen ?? Date.now()) : user.lastSeen
+                // Update lastSeen based on status
+                lastSeen: lastSeen ?? (status === 'offline' ? now : user.lastSeen)
             };
 
             // Update cache first
@@ -197,6 +202,7 @@ class ChatState {
             console.debug('User status updated:', {
                 userId,
                 newStatus: status,
+                newLastSeen: new Date(updatedUser.lastSeen || now).toISOString(),
                 updatedInCache: this.userCache[userId].status === status,
                 updatedInList: this.users.find(u => u.id === userId)?.status === status
             });
@@ -210,7 +216,7 @@ class ChatState {
                         const newUser: User = {
                             ...data.user,
                             status,
-                            lastSeen: status === 'offline' ? (lastSeen ?? Date.now()) : data.user.lastSeen
+                            lastSeen: lastSeen ?? (status === 'offline' ? now : data.user.lastSeen)
                         };
                         // Update both cache and users array
                         this.userCache[userId] = newUser;
@@ -219,6 +225,7 @@ class ChatState {
                         console.debug('User fetched and status updated:', {
                             userId,
                             status: newUser.status,
+                            lastSeen: new Date(newUser.lastSeen || now).toISOString(),
                             addedToCache: !!this.userCache[userId],
                             addedToList: this.users.some(u => u.id === userId)
                         });
@@ -375,31 +382,38 @@ class ChatState {
             this.eventSource = null;
         }
 
-        if (this.isReconnecting) {
-            console.debug('Already attempting to reconnect, skipping new connection attempt');
-            return;
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
         }
 
-        this.isReconnecting = true;
-        console.debug('Connecting to SSE...');
-        
         try {
-            // Connect to the unified SSE endpoint
+            console.debug('Connecting to SSE...');
             this.eventSource = new EventSource('/api/sse', { withCredentials: true });
+            this.isReconnecting = false;
 
-            // Default message event for handshake
-            this.eventSource.onmessage = (event) => {
-                if (event.data === 'Connected') {
-                    console.debug('SSE connection established');
-                    this.reconnectAttempts = 0;
-                    this.reconnectDelay = 1000;
-                    this.isReconnecting = false;
-                    this.sseError = null;
-                    this.sseRetryAfter = null;
-                } else {
-                    console.debug('Received unexpected default message:', event.data);
+            this.eventSource.onopen = () => {
+                console.debug('SSE connection established');
+                this.reconnectAttempts = 0;
+                this.reconnectDelay = 1000;
+                this.sseError = null;
+                this.sseRetryAfter = null;
+            };
+
+            this.eventSource.onerror = (error) => {
+                console.debug('SSE connection error:', error);
+                if (this.eventSource?.readyState === EventSource.CLOSED) {
+                    this.handleDisconnection();
                 }
             };
+
+            // Set a connection timeout
+            this.connectionTimeout = setTimeout(() => {
+                if (this.eventSource?.readyState !== EventSource.OPEN) {
+                    console.debug('SSE connection timeout');
+                    this.handleDisconnection();
+                }
+            }, 10000); // 10 second timeout
 
             // Listen for chat messages
             this.eventSource.addEventListener('chatMessage', async (event: MessageEvent) => {
@@ -436,81 +450,32 @@ class ChatState {
                     console.debug('Error processing userStatusUpdate event:', error);
                 }
             });
-
-            this.eventSource.onerror = (event) => {
-                console.debug('SSE encountered an error:', event);
-                this.handleSSEError();
-            };
         } catch (error) {
-            console.debug('Error setting up SSE connection:', error);
-            this.isReconnecting = false;
-            this.handleSSEError();
+            console.error('Error setting up SSE connection:', error);
+            this.handleDisconnection();
         }
     }
 
-    private async handleSSEError() {
+    private handleDisconnection() {
+        if (this.isReconnecting) return;
+        
+        this.isReconnecting = true;
         if (this.eventSource) {
             this.eventSource.close();
             this.eventSource = null;
         }
 
-        // If we're already reconnecting, don't start another reconnection attempt
-        if (this.isReconnecting) {
-            console.debug('Already attempting to reconnect, skipping error handler');
-            return;
-        }
-
-        // Check if the error was due to rate limiting
-        try {
-            const response = await fetch('/api/sse');
-            if (response.status === 429) {
-                const data = await response.json();
-                this.sseError = data.error;
-                this.sseRetryAfter = data.retryAfter;
-                this.isReconnecting = false;
-                
-                // Set up automatic retry after the rate limit expires
-                setTimeout(() => {
-                    this.sseError = null;
-                    this.sseRetryAfter = null;
-                    this.reconnectSSE();
-                }, (data.retryAfter + 1) * 1000); // Add 1 second buffer
-                
-                return;
-            }
-        } catch (error) {
-            console.debug('Error checking SSE status:', error);
-        }
-
-        // Handle other types of errors with exponential backoff
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.sseError = `Connection lost. Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`;
             console.debug(`Attempting to reconnect (${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
-            
             setTimeout(() => {
                 this.reconnectAttempts++;
-                this.reconnectDelay *= 2; // Exponential backoff
-                this.isReconnecting = false;
+                this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000); // Max 30 second delay
                 this.connectSSE();
             }, this.reconnectDelay);
         } else {
-            this.isReconnecting = false;
-            this.sseError = 'Unable to connect to chat. Please refresh the page to try again.';
             console.debug('Max reconnection attempts reached');
+            this.sseError = 'Connection lost. Please refresh the page.';
         }
-    }
-
-    private reconnectSSE() {
-        if (this.isReconnecting) {
-            console.debug('Already attempting to reconnect, skipping reconnection request');
-            return;
-        }
-        
-        this.reconnectAttempts = 0;
-        this.reconnectDelay = 1000;
-        this.sseError = null;
-        this.sseRetryAfter = null;
-        this.connectSSE();
     }
 
     // Add new method to enrich multiple messages at once

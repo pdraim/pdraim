@@ -2,13 +2,32 @@ import type { Handle } from "@sveltejs/kit";
 import { validateSessionToken } from "$lib/api/session.server";
 import { setSessionTokenCookie, deleteSessionTokenCookie } from "$lib/api/session.cookie";
 import { initializeDatabase } from "$lib/db/db.server";
+import db from "$lib/db/db.server";
 import { handleRateLimit } from "$lib/api/rate-limiter";
+import { users } from "$lib/db/schema";
+
+async function setAllUsersOffline() {
+    try {
+        console.log("Setting all users to offline status...");
+        await db.update(users)
+            .set({ 
+                status: "offline"
+            });
+        console.log("Successfully set all users to offline status");
+    } catch (error) {
+        console.error("Failed to set users offline:", error);
+    }
+}
 
 // Initialize database when the server starts
 console.debug("Initializing database on server start...");
-initializeDatabase().catch(error => {
-    console.error('Failed to initialize database:', error);
-});
+initializeDatabase()
+    .then(async () => {
+        await setAllUsersOffline();
+    })
+    .catch(error => {
+        console.error('Failed to initialize database:', error);
+    });
 
 export const handle: Handle = async ({ event, resolve }) => {
     console.debug("Handling request:", event.url.pathname);

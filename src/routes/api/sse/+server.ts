@@ -10,66 +10,88 @@ console.log('[SSE] Server initialized');
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds
 
+let timeoutInterval: ReturnType<typeof setInterval>;
+
 // Initialize periodic check for timed out users
-const timeoutInterval = setInterval(async () => {
-    const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
-    console.log('[SSE] Checking for timed out users', { 
-        checkTime: new Date().toISOString(),
-        timeoutThreshold: new Date(timeoutThreshold).toISOString()
-    });
+function startTimeoutCheck() {
+    if (timeoutInterval) {
+        clearInterval(timeoutInterval);
+    }
 
-    try {
-        // Find and update users who haven't been seen recently
-        const now = Date.now();
-        const result = await db.update(users)
-            .set({ 
-                status: 'offline',
-                lastSeen: now
-            })
-            .where(
-                and(
-                    eq(users.status, 'online'), // Only update online users
-                    lt(users.lastSeen, timeoutThreshold) // Who haven't been seen recently
-                )
-            )
-            .returning({ 
-                id: users.id,
-                nickname: users.nickname,
-                lastSeen: users.lastSeen
-            });
+    timeoutInterval = setInterval(async () => {
+        const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
+        console.log('[SSE] Checking for timed out users', { 
+            checkTime: new Date().toISOString(),
+            timeoutThreshold: new Date(timeoutThreshold).toISOString()
+        });
 
-        // Log timeout results
-        if (result.length > 0) {
-            console.log('[SSE] Found timed out users:', result.map(user => ({
-                nickname: user.nickname,
-                lastSeen: new Date(user.lastSeen || 0).toISOString()
-            })));
-        }
-
-        // Broadcast status updates for timed out users
-        result.forEach(user => {
-            sseEmitter.emit('sse', {
-                type: 'userStatusUpdate',
-                data: {
-                    userId: user.id,
+        try {
+            // Find and update users who haven't been seen recently
+            const now = Date.now();
+            const result = await db.update(users)
+                .set({ 
                     status: 'offline',
                     lastSeen: now
-                }
+                })
+                .where(
+                    and(
+                        eq(users.status, 'online'), // Only update online users
+                        lt(users.lastSeen, timeoutThreshold) // Who haven't been seen recently
+                    )
+                )
+                .returning({ 
+                    id: users.id,
+                    nickname: users.nickname,
+                    lastSeen: users.lastSeen
+                });
+
+            // Log timeout results
+            if (result.length > 0) {
+                console.log('[SSE] Found timed out users:', result.map(user => ({
+                    nickname: user.nickname,
+                    lastSeen: new Date(user.lastSeen || 0).toISOString()
+                })));
+            }
+
+            // Broadcast status updates for timed out users
+            result.forEach(user => {
+                sseEmitter.emit('sse', {
+                    type: 'userStatusUpdate',
+                    data: {
+                        userId: user.id,
+                        status: 'offline',
+                        lastSeen: now
+                    }
+                });
+                console.log('[SSE] User timed out and marked offline:', {
+                    nickname: user.nickname,
+                    lastSeen: new Date(now).toISOString()
+                });
             });
-            console.log('[SSE] User timed out and marked offline:', {
-                nickname: user.nickname,
-                lastSeen: new Date(now).toISOString()
-            });
-        });
-    } catch (error) {
-        console.log('[SSE] Error during timeout check:', error);
-    }
-}, CHECK_INTERVAL_MS);
+        } catch (error) {
+            console.error('[SSE] Error during timeout check:', error);
+        }
+    }, CHECK_INTERVAL_MS);
+}
+
+// Start the timeout check when this module loads
+startTimeoutCheck();
 
 // Ensure the interval is cleared if the module is reloaded
-if (typeof process !== 'undefined' && process.on) {
+if (typeof process !== 'undefined') {
     process.on('beforeExit', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
+    });
+    
+    // Also handle SIGTERM and SIGINT
+    process.on('SIGTERM', () => {
+        if (timeoutInterval) clearInterval(timeoutInterval);
+        process.exit(0);
+    });
+    
+    process.on('SIGINT', () => {
+        if (timeoutInterval) clearInterval(timeoutInterval);
+        process.exit(0);
     });
 }
 
