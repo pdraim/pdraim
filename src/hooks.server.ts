@@ -2,6 +2,7 @@ import type { Handle } from "@sveltejs/kit";
 import { validateSessionToken } from "$lib/api/session.server";
 import { setSessionTokenCookie, deleteSessionTokenCookie } from "$lib/api/session.cookie";
 import { initializeDatabase } from "$lib/db/db.server";
+import { handleRateLimit } from "$lib/api/rate-limiter";
 
 // Initialize database when the server starts
 console.debug("Initializing database on server start...");
@@ -11,6 +12,12 @@ initializeDatabase().catch(error => {
 
 export const handle: Handle = async ({ event, resolve }) => {
     console.debug("Handling request:", event.url.pathname);
+    
+    // Apply rate limiting for API routes
+    const rateLimitResponse = await handleRateLimit(event);
+    if (rateLimitResponse) {
+        return rateLimitResponse;
+    }
     
     // Check if this is a public chat messages request
     const isPublicChatRequest = 

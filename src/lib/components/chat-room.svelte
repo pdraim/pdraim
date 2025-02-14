@@ -7,7 +7,9 @@ import { draggable } from '$lib/actions/draggable';
 import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
 import LoadingButton from './ui/button-loading.svelte';
+import Tooltip from './ui/tooltip.svelte';
 import { DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
+import { formatFrenchDateTime, formatFrenchRelativeTimeSafe } from '$lib/utils/date-format';
 
 // Initialize with default values for SSR
 let windowWidth = $state(400);
@@ -150,14 +152,6 @@ async function handleSubmit() {
   }
 }
 
-function formatTimestamp(date: Date) {
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit',
-    hour12: true 
-  });
-}
-
 function getStatusIcon(status: User['status']) {
   switch (status) {
     case 'online': return '🟢';
@@ -281,11 +275,16 @@ function handleMaximizeEvent(event: CustomEvent<{
         {#each visibleMessages as message (message.id)}
           <div class="message {message.type} text">
             {#if message.type === 'emote'}
-              <span class="timestamp">{formatTimestamp(new Date(message.timestamp))}</span>
-              <span class="emote-text">{message.user.nickname} {message.content}</span>
+              <span class="emote-text">
+                <Tooltip data={{ text: formatFrenchDateTime(new Date(message.timestamp)), direction: "right" }}>
+                  <span class="nickname">{message.user.nickname}</span>
+                </Tooltip>
+                {message.content}
+              </span>
             {:else}
-              <span class="timestamp">{formatTimestamp(new Date(message.timestamp))}</span>
-              <span class="nickname">{message.user.nickname}:</span>
+              <Tooltip data={{ text: formatFrenchDateTime(new Date(message.timestamp)), direction: "right" }}>
+                <span class="nickname">{message.user.nickname}:</span>
+              </Tooltip>
               <span class="content">{message.content}</span>
             {/if}
           </div>
@@ -317,18 +316,22 @@ function handleMaximizeEvent(event: CustomEvent<{
       class:hidden={isMobile && !showUserList}
       style="width: {isMobile ? '100%' : '9.375rem'}; padding: 0.5rem; overflow-y: auto;"
     >
-      <p style="margin: 0 0 0.5rem 0;"><strong>Buddy List</strong></p>
+      <p style="margin: 0 0 0.3rem 0;"><strong>Buddy List</strong></p>
       {#each onlineUsers as user}
         <div class="user" class:offline={user.status === 'offline'}>
           <span class="status-icon">{getStatusIcon(user.status)}</span>
           <div class="user-info">
-            <div class="nickname">{user.nickname}</div>
+            {#if user.status === 'offline'}
+              <Tooltip data={{ text: "Dernière connexion: " + formatFrenchRelativeTimeSafe(user.lastSeen), direction: "bottom" }}>
+                <div class="nickname select-none">{user.nickname}</div>
+              </Tooltip>
+            {:else}
+              <div class="nickname select-none">{user.nickname}</div>
+            {/if}
             {#if user.status === 'away'}
               <div class="status-message">Away</div>
             {:else if user.status === 'busy'}
               <div class="status-message">Busy</div>
-            {:else if user.status === 'offline'}
-              <div class="status-message">Last seen: {formatLastSeen(user.lastSeen)}</div>
             {/if}
           </div>
         </div>
@@ -342,7 +345,7 @@ function handleMaximizeEvent(event: CustomEvent<{
 
   .chat-area, .users-list, input {
     font-size: 1rem;
-    font-family: 'Microsoft Sans Serif', 'Segoe UI', Arial, Tahoma, sans-serif;
+    font-family: Arial, Verdana, Tahoma, sans-serif;
   }
   
   .title-bar {
@@ -362,20 +365,21 @@ function handleMaximizeEvent(event: CustomEvent<{
   }
 
   .message {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
     word-break: break-word;
-  }
-
-  .message .timestamp {
-    color: #666;
-    font-size: 0.875rem;
-    margin-right: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
   }
 
   .message .nickname {
     font-weight: bold;
     color: #2d31a6;
-    margin-right: 0.5rem;
+    cursor: help;
+  }
+
+  .message .content {
+    flex: 1;
   }
 
   .message.emote {
@@ -383,10 +387,14 @@ function handleMaximizeEvent(event: CustomEvent<{
     font-style: italic;
   }
 
+  .message.emote .nickname {
+    color: #666;
+  }
+
   .user {
     display: flex;
     align-items: flex-start;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.25rem;
     gap: 0.375rem;
     transition: opacity 0.3s ease;
   }
@@ -512,5 +520,12 @@ function handleMaximizeEvent(event: CustomEvent<{
     :global(.resize-handle) {
       display: none;
     }
+  }
+
+  .relative-time {
+    color: #666;
+    font-size: 0.75rem;
+    margin-right: 0.5rem;
+    font-style: italic;
   }
 </style>

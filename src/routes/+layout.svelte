@@ -1,7 +1,5 @@
 <script lang="ts">
-	import '../app.css';
-	import DesktopIcons from '$lib/components/desktop-icons.svelte';
-	import ChatRoom from '$lib/components/chat-room.svelte';
+	import '../app.css';;
 	import { chatState } from '$lib/states/chat.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';

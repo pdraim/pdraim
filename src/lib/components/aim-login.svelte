@@ -3,19 +3,15 @@
     import { draggable } from '$lib/actions/draggable';
     import type { RegisterResponse, RegisterResponseError } from '$lib/types/payloads';
     import type { User } from '$lib/types/chat';
-    import { invalidate } from '$app/navigation';
-    import { createEventDispatcher } from 'svelte';
+    import { invalidate, invalidateAll } from '$app/navigation';
     
-    let { onLoginSuccess }: { onLoginSuccess?: (user: User) => void } = $props();
-    const dispatch = createEventDispatcher();
+    let { onLoginSuccess, showAuth = $bindable() }: { onLoginSuccess?: (user: User) => void, showAuth:Boolean } = $props();
     
     let activeTab = $state('signin');
 
     // Sign In state
     let siUsername = $state('');
     let siPassword = $state('');
-    let savePassword = $state(true);
-    let autoLogin = $state(false);
     let error = $state('');
     let loginStatus = $state('idle');
   
@@ -26,6 +22,11 @@
     let captchaAnswer = $state('');
     let signupError = $state('');
     let signupStatus = $state('idle');
+
+    function handleClose() {
+        console.debug("Closing AIM Login component.");
+        showAuth = false;
+    }
 
     async function handleSigninSubmit() {
         error = '';
@@ -138,17 +139,14 @@
                 return;
             }
             console.debug("Auto login after registration succeeded:", data);
-            await Promise.all([
-                invalidate('app:session'),
-                invalidate('app:chat'),
-                invalidate('custom:chat:session'),
-                invalidate('chat:session')
-            ]);
+
             onLoginSuccess?.(data.user);
             setTimeout(() => {
                 console.debug("Auto closing AIM Login component after auto login on registration");
+                invalidateAll();
                 handleClose();
             }, 3000);
+
         } catch (err) {
             console.debug("Auto login error:", err);
             signupError = "Auto login error. Please try to login manually.";
@@ -160,11 +158,6 @@
         activeTab = tab;
         error = '';
         signupError = '';
-    }
-    
-    function handleClose() {
-        console.debug("Closing AIM Login component.");
-        dispatch('close');
     }
 
     function handleKeydown(event: KeyboardEvent) {
@@ -213,16 +206,6 @@
                 <div class="form-group">
                     <label for="si-password">Password</label>
                     <input type="password" id="si-password" bind:value={siPassword} placeholder="Password" />
-                </div>
-                <div class="checkboxes">
-                    <label>
-                        <input type="checkbox" bind:checked={savePassword} />
-                        Save password
-                    </label>
-                    <label>
-                        <input type="checkbox" bind:checked={autoLogin} />
-                        Auto-login
-                    </label>
                 </div>
                 {#if error}
                     <div class="error">{error}</div>
@@ -366,17 +349,7 @@
         width: 100%;
         padding: 4px;
         font-size: 1rem;
-    }
-    .checkboxes {
-        display: flex;
-        gap: 16px;
-        margin-bottom: 16px;
-        font-size: 1rem;
-    }
-    .checkboxes label {
-        display: flex;
-        align-items: center;
-        gap: 4px;
+        font-family: Arial, Verdana, Tahoma, sans-serif;
     }
     .button-bar {
         display: flex;
