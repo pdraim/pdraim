@@ -95,9 +95,24 @@ if (typeof process !== 'undefined') {
     });
 }
 
-export const GET: RequestHandler = async ({ request, locals }) => {
+export const GET: RequestHandler = async ({ request, locals, cookies }) => {
+    // Add detailed debug logging for authentication state
+    console.log('[SSE] Connection attempt:', {
+        hasLocals: !!locals,
+        hasUser: !!locals.user,
+        userId: locals.user?.id,
+        hasSessionCookie: !!cookies.get('session'),
+        headers: Object.fromEntries(request.headers.entries())
+    });
+
     if (!locals.user) {
-        return new Response('Unauthorized', { status: 401 });
+        console.log('[SSE] Authentication failed - no user in locals');
+        return new Response('Unauthorized', { 
+            status: 401,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
     }
 
     const userId = locals.user.id;
@@ -107,22 +122,33 @@ export const GET: RequestHandler = async ({ request, locals }) => {
 
     // Update user status to online and lastSeen timestamp when establishing connection
     const now = Date.now();
-    await db.update(users)
-        .set({ 
-            status: 'online',
-            lastSeen: now 
-        })
-        .where(eq(users.id, userId));
+    
+    try {
+        await db.update(users)
+            .set({ 
+                status: 'online',
+                lastSeen: now 
+            })
+            .where(eq(users.id, userId));
 
-    // Broadcast the status update
-    sseEmitter.emit('sse', {
-        type: 'userStatusUpdate',
-        data: {
-            userId,
-            status: 'online',
-            lastSeen: now
-        }
-    });
+        console.log('[SSE] User status updated to online:', {
+            userId: `${userId.slice(0, 4)}...${userId.slice(-4)}`,
+            timestamp: new Date(now).toISOString()
+        });
+
+        // Broadcast the status update
+        sseEmitter.emit('sse', {
+            type: 'userStatusUpdate',
+            data: {
+                userId,
+                status: 'online',
+                lastSeen: now
+            }
+        });
+    } catch (error) {
+        console.error('[SSE] Error updating user status:', error);
+        // Continue with SSE setup even if status update fails
+    }
 
     const stream = new ReadableStream({
         start(controller) {

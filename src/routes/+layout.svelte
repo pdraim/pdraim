@@ -8,19 +8,29 @@
 	let isVisible = $state(true);
 	let statusInterval = $state<number | undefined>(undefined);
 	let lastUserUpdate = $state<string | null>(null);
+	let updateInProgress = $state(false);
 
 	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
-		if (!data.user?.id) return;
+		if (!data.user?.id || updateInProgress) return;
 		
+		updateInProgress = true;
 		const timestamp = new Date().toISOString();
 		console.debug('Updating user status:', {
 			userId: data.user.id,
 			status,
 			timestamp,
-			trigger: new Error().stack?.split('\n')[2]?.trim()
+			trigger: new Error().stack?.split('\n')[2]?.trim(),
+			hasSession: !!data.session,
+			cookiePresent: browser ? document.cookie.includes('session=') : false
 		});
 
 		try {
+			// Add a small delay to ensure cookie is set after login
+			if (status === 'online' && !document.cookie.includes('session=')) {
+				console.debug('Waiting for session cookie before status update...');
+				await new Promise(resolve => setTimeout(resolve, 500));
+			}
+
 			const response = await fetch('/api/status', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -32,9 +42,17 @@
 			
 			if (!response.ok) {
 				console.error('Failed to update user status:', await response.json());
+			} else {
+				console.debug('Status update successful:', {
+					userId: data.user.id,
+					status,
+					cookiePresent: document.cookie.includes('session=')
+				});
 			}
 		} catch (error) {
 			console.error('Error updating user status:', error);
+		} finally {
+			updateInProgress = false;
 		}
 	}
 
