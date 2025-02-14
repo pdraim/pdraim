@@ -3,7 +3,7 @@
     import { draggable } from '$lib/actions/draggable';
     import type { RegisterResponse, RegisterResponseError } from '$lib/types/payloads';
     import type { User } from '$lib/types/chat';
-    import { invalidate, invalidateAll } from '$app/navigation';
+    import { invalidateAll } from '$app/navigation';
     
     let { onLoginSuccess, showAuth = $bindable() }: { onLoginSuccess?: (user: User) => void, showAuth:Boolean } = $props();
     
@@ -59,19 +59,12 @@
             console.debug("Login succeeded:", data);
             loginStatus = 'success';
             
-            // Invalidate all session-related dependencies
-            await Promise.all([
-                invalidate('app:session'),
-                invalidate('app:chat'),
-                invalidate('custom:chat:session'),
-                invalidate('chat:session')
-            ]);
-            
             // Call the callback prop if provided
             onLoginSuccess?.(data.user);
             // Auto close login window after 3 seconds on successful login
             setTimeout(() => {
                 console.debug("Auto closing AIM Login component after successful login");
+                invalidateAll();
                 handleClose();
             }, 3000);
 
