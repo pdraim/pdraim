@@ -87,10 +87,14 @@ class ChatState {
                 return;
             }
             
-            // If same user is being set, skip
+            // If same user is being set, check SSE connection
             if (user?.id === this.currentUser?.id) {
-                console.debug('Same user being set, skipping');
-                return;
+                if (!this.eventSource) {
+                    console.debug('Same user being set but no active SSE connection, reinitializing.');
+                } else {
+                    console.debug('Same user being set with active connection, skipping.');
+                    return;
+                }
             }
             
             this.currentUser = user;
