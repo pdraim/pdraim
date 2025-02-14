@@ -25,11 +25,11 @@ const RATE_LIMITS = {
     // SSE endpoints - separate limits for authenticated and unauthenticated users
     sse: {
         authenticated: { 
-            points: isDev ? 1000 : 100, 
+            points: isDev ? 1000 : 500,
             durationMs: 60 * 1000 
         },
         unauthenticated: { 
-            points: isDev ? 1000 : 10, 
+            points: 0,
             durationMs: 60 * 1000 
         }
     }
