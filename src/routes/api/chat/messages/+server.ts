@@ -11,9 +11,9 @@ import { desc } from 'drizzle-orm';
 import { error } from '@sveltejs/kit';
 import { sseEmitter } from '$lib/sseEmitter';
 import { eq, lt, and } from 'drizzle-orm';
-import { chatRooms, DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
+import { chatRooms } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
-import { ensureDefaultChatRoom } from '$lib/db/schema';
+import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
 import { messageCache } from '$lib/cache/message-cache';
 import { createLogger } from '$lib/utils/logger.server';
 
@@ -87,9 +87,6 @@ export async function GET({ request, locals }) {
     let fetchedMessages: Message[] = [];
 
     try {
-        // Ensure default chat room exists
-        await ensureDefaultChatRoom(db);
-
         // Initialize cache if needed
         if (!isCacheInitialized) {
             await initializeCache();
@@ -202,9 +199,6 @@ export async function POST({ request, locals }: { request: Request, locals: App.
                 }
             });
         }
-
-        // Ensure default chat room exists
-        await ensureDefaultChatRoom(db);
 
         const data = await request.json() as SendMessageRequest;
         if (!data.content || !data.userId) {

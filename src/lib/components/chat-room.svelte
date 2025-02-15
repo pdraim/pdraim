@@ -8,7 +8,6 @@ import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
 import LoadingButton from './ui/button-loading.svelte';
 import Tooltip from './ui/tooltip.svelte';
-import { DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 import { formatFrenchDateTime, formatFrenchRelativeTimeSafe } from '$lib/utils/date-format';
 
 // Initialize with default values for SSR
@@ -65,7 +64,7 @@ let currentUser = $state<User | null>(null);
 let isLoadingMore = $state(false);
 let hasMoreMessages = $state(true);
 let oldestMessageTimestamp = $state<number | null>(null);
-let currentRoomId = $state(DEFAULT_CHAT_ROOM_ID);
+let currentRoomId = $state('');
 
 // Compute visible messages based on login status
 let visibleMessages = $derived((() => {
@@ -131,9 +130,12 @@ $effect(() => {
       fetchedPublicRoom = true;
       fetchedPublicMessages = true;
 
+      // Get the default chat room id
+      const defaultRoomId = chatState.getDefaultChatRoomId();
+
       // Fetch both in parallel
       Promise.all([
-        fetch(`/api/rooms/${DEFAULT_CHAT_ROOM_ID}?public=true`).then(r => r.json()),
+        fetch(`/api/rooms/${defaultRoomId}?public=true`).then(r => r.json()),
         fetch('/api/chat/messages?public=true').then(r => r.json())
       ])
       .then(([roomData, messagesData]) => {

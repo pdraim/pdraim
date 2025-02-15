@@ -5,8 +5,9 @@ import type {
     GetMessagesResponse 
 } from '../types/payloads';
 import { invalidate } from '$app/navigation';
-import { DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
+import { env } from '$env/dynamic/public';
 
+const DEFAULT_CHAT_ROOM_ID = env.PUBLIC_DEFAULT_CHAT_ROOM_ID;
 
 class ChatState {
     private users = $state<User[]>([]);
@@ -17,7 +18,7 @@ class ChatState {
     private maxReconnectAttempts = 5;
     private reconnectDelay = 1000; // Start with 1 second
     private isInitializing = $state(false);
-    private currentRoomId = $state<string>(DEFAULT_CHAT_ROOM_ID);
+    private currentRoomId = $state<string>();
     private userCache = $state<Record<string, User>>({});
     private sseError = $state<string | null>(null);
     private sseRetryAfter = $state<number | null>(null);
@@ -667,6 +668,10 @@ class ChatState {
                 createdAt: 0
             }
         }));
+    }
+
+    getDefaultChatRoomId() {
+        return DEFAULT_CHAT_ROOM_ID;
     }
 }
 

@@ -1,5 +1,8 @@
 import type { Message } from '$lib/types/chat';
-import { DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
+import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('message-cache');
 
 interface RoomCache {
     messages: Message[];
@@ -18,7 +21,7 @@ class MessageCache {
         this.maxMessagesPerRoom = 100; // Keep last 100 messages per room
         this.maxRooms = 100; // Maximum number of rooms to cache
         this.cacheExpiryMs = 30 * 60 * 1000; // 30 minutes cache expiry
-        console.debug('[MessageCache] Initialized with settings:', {
+        log.debug('[MessageCache] Initialized with settings:', {
             maxMessagesPerRoom: this.maxMessagesPerRoom,
             maxRooms: this.maxRooms,
             cacheExpiryMs: this.cacheExpiryMs
@@ -44,7 +47,7 @@ class MessageCache {
         }
         
         if (expiredCount > 0) {
-            console.debug('[MessageCache] Cleaned expired rooms:', { expiredCount });
+            log.debug('[MessageCache] Cleaned expired rooms:', { expiredCount });
         }
     }
 
@@ -59,7 +62,7 @@ class MessageCache {
                 this.rooms.delete(roomId);
             }
             
-            console.debug('[MessageCache] Removed LRU rooms:', { 
+            log.debug('[MessageCache] Removed LRU rooms:', { 
                 removedCount: toRemove.length,
                 remainingRooms: this.rooms.size 
             });
@@ -67,7 +70,7 @@ class MessageCache {
     }
 
     public async initialize(messages: Message[]): Promise<void> {
-        console.debug('[MessageCache] Initializing with messages:', messages.length);
+        log.debug('[MessageCache] Initializing with messages:', { messageCount: messages.length });
         // Group messages by chat room
         const messagesByRoom = new Map<string, Message[]>();
         
@@ -89,7 +92,7 @@ class MessageCache {
         }
 
         this.ensureRoomCapacity();
-        console.debug('[MessageCache] Initialization complete:', { 
+        log.debug('[MessageCache] Initialization complete:', { 
             roomCount: this.rooms.size,
             totalMessages: messages.length
         });
@@ -130,7 +133,7 @@ class MessageCache {
         this.rooms.set(message.chatRoomId, roomCache);
         this.ensureRoomCapacity();
 
-        console.debug('[MessageCache] Added message to cache:', { 
+        log.debug('[MessageCache] Added message to cache:', { 
             messageId: message.id,
             roomId: message.chatRoomId,
             roomMessageCount: roomCache.messages.length,
@@ -144,7 +147,7 @@ class MessageCache {
 
     public clear(): void {
         this.rooms.clear();
-        console.debug('[MessageCache] Cache cleared');
+        log.debug('[MessageCache] Cache cleared');
     }
 
     public getCacheStats(): {

@@ -7,6 +7,7 @@ import { handleRateLimit } from "$lib/api/rate-limiter";
 import { users } from "$lib/db/schema";
 import { initializeMessageCache } from "$lib/cache/initialize-cache";
 import { createLogger } from "$lib/utils/logger.server";
+import { ensureDefaultChatRoom } from "$lib/utils/chat.server";
 
 const log = createLogger('hooks-server');
 
@@ -27,6 +28,7 @@ async function setAllUsersOffline() {
 log.debug("Initializing database on server start...");
 initializeDatabase()
     .then(async () => {
+        await ensureDefaultChatRoom(db);
         await setAllUsersOffline();
         await initializeMessageCache();
     })
