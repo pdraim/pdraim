@@ -15,16 +15,19 @@ class MessageCache {
     private readonly maxMessagesPerRoom: number;
     private readonly maxRooms: number;
     private readonly cacheExpiryMs: number;
+    private readonly publicMessageLimit: number;
     
     private constructor() {
         this.rooms = new Map();
         this.maxMessagesPerRoom = 100; // Keep last 100 messages per room
         this.maxRooms = 100; // Maximum number of rooms to cache
         this.cacheExpiryMs = 30 * 60 * 1000; // 30 minutes cache expiry
+        this.publicMessageLimit = 10; // Strict limit for public/non-auth users
         log.debug('[MessageCache] Initialized with settings:', {
             maxMessagesPerRoom: this.maxMessagesPerRoom,
             maxRooms: this.maxRooms,
-            cacheExpiryMs: this.cacheExpiryMs
+            cacheExpiryMs: this.cacheExpiryMs,
+            publicMessageLimit: this.publicMessageLimit
         });
     }
 
@@ -98,19 +101,38 @@ class MessageCache {
         });
     }
 
-    public getMessages(roomId: string = DEFAULT_CHAT_ROOM_ID, limit?: number): Message[] {
-        const roomCache = this.rooms.get(roomId);
-        if (!roomCache) {
+    /**
+     * Get messages for authenticated users
+     */
+    public getMessages(roomId: string = DEFAULT_CHAT_ROOM_ID, limit: number = this.maxMessagesPerRoom): Message[] {
+        this.cleanExpiredRooms();
+        const cache = this.rooms.get(roomId);
+        
+        if (!cache) {
+            log.debug('[MessageCache] No messages found for room:', { roomId });
             return [];
         }
 
-        // Update last accessed time
-        roomCache.lastUpdated = Date.now();
+        cache.lastUpdated = Date.now();
+        const messages = [...cache.messages];
+        return limit ? messages.slice(-limit) : messages;
+    }
+
+    /**
+     * Get messages for public/non-authenticated users with strict limit
+     */
+    public getPublicMessages(roomId: string = DEFAULT_CHAT_ROOM_ID): Message[] {
+        this.cleanExpiredRooms();
+        const cache = this.rooms.get(roomId);
         
-        if (limit) {
-            return roomCache.messages.slice(-limit);
+        if (!cache) {
+            log.debug('[MessageCache] No public messages found for room:', { roomId });
+            return [];
         }
-        return [...roomCache.messages]; // Return a copy to prevent external modifications
+
+        cache.lastUpdated = Date.now();
+        const messages = [...cache.messages];
+        return messages.slice(-this.publicMessageLimit);
     }
 
     public addMessage(message: Message): void {

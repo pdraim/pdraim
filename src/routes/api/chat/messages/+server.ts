@@ -7,15 +7,15 @@ import type {
     SendMessageResponse, 
     GetMessagesResponse 
 } from '$lib/types/payloads';
-import { desc } from 'drizzle-orm';
+import { desc, eq, lt, and } from 'drizzle-orm';
 import { error } from '@sveltejs/kit';
 import { sseEmitter } from '$lib/sseEmitter';
-import { eq, lt, and } from 'drizzle-orm';
 import { chatRooms } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
 import { messageCache } from '$lib/cache/message-cache';
 import { createLogger } from '$lib/utils/logger.server';
+import { SQL } from 'drizzle-orm';
 
 const log = createLogger('chat-server');
 
@@ -94,46 +94,56 @@ export async function GET({ request, locals }) {
 
         // Try to get messages from cache first
         if (!beforeTimestamp) {
-            log.debug('Attempting to fetch messages from cache', { roomId });
-            const cachedMessages = messageCache.getMessages(roomId);
+            log.debug('Attempting to fetch messages from cache', { 
+                roomId,
+                isAuthenticated: !!locals.session
+            });
+
+            // Use appropriate method based on authentication status
+            const cachedMessages = locals.session 
+                ? messageCache.getMessages(roomId)
+                : messageCache.getPublicMessages(roomId);
+
             if (cachedMessages && cachedMessages.length > 0) {
                 log.debug('Messages found in cache', { 
+                    count: cachedMessages.length,
                     roomId,
-                    messageCount: cachedMessages.length
+                    isAuthenticated: !!locals.session
                 });
                 fetchedMessages = cachedMessages;
             }
         }
 
-        // If no cached messages or pagination request, fetch from DB
-        if (fetchedMessages.length === 0) {
-            if (!locals.user) {
-                log.warn('Authentication required');
-                throw error(401, 'Authentication required');
-            }
+        // If no cached messages or pagination requested, fetch from DB
+        if (fetchedMessages.length === 0 || beforeTimestamp) {
+            log.debug('Fetching messages from database', { 
+                beforeTimestamp,
+                roomId,
+                isAuthenticated: !!locals.session
+            });
+
+            let conditions = eq(messages.chatRoomId, roomId) as SQL<unknown>;
             
             if (beforeTimestamp) {
-                log.debug('Fetching messages from DB before timestamp', { 
-                    roomId,
-                    beforeTimestamp
-                });
-                const query = db.select()
-                    .from(messages)
-                    .where(and(
-                        eq(messages.chatRoomId, roomId),
-                        lt(messages.timestamp, parseInt(beforeTimestamp))
-                    ))
-                    .orderBy(desc(messages.timestamp))
-                    .limit(100);
-                fetchedMessages = (await query).reverse();
-            } else {
-                log.debug('Fetching messages from DB for instant chat', { roomId });
-                const query = db.select()
-                    .from(messages)
-                    .where(eq(messages.chatRoomId, roomId))
-                    .orderBy(desc(messages.timestamp))
-                    .limit(50);
-                fetchedMessages = (await query).reverse();
+                conditions = and(
+                    conditions,
+                    lt(messages.timestamp, parseInt(beforeTimestamp))
+                ) as SQL<unknown>;
+            }
+
+            // Build and execute query with conditions
+            const fetchLimit = locals.session ? 100 : 10;
+            fetchedMessages = await db.select()
+                .from(messages)
+                .where(conditions)
+                .orderBy(desc(messages.timestamp))
+                .limit(fetchLimit);
+
+            // Update cache with new messages if not paginating
+            if (!beforeTimestamp && fetchedMessages.length > 0) {
+                for (const msg of fetchedMessages) {
+                    messageCache.addMessage(msg);
+                }
             }
         }
 
@@ -142,29 +152,14 @@ export async function GET({ request, locals }) {
             messages: fetchedMessages
         };
 
-        return new Response(
-            JSON.stringify(response),
-            { 
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify(response), {
+            headers: {
+                'Content-Type': 'application/json'
             }
-        );
-    } catch (error) {
-        log.error('Error fetching messages', { 
-            error: error instanceof Error ? error.message : 'Unknown error',
-            roomId
         });
-        const errorResponse: GetMessagesResponse = {
-            success: false,
-            error: 'Failed to fetch messages'
-        };
-        return new Response(
-            JSON.stringify(errorResponse),
-            { 
-                status: 500,
-                headers: { 'Content-Type': 'application/json' }
-            }
-        );
+    } catch (err) {
+        log.error('Error fetching messages:', { error: err });
+        throw error(500, 'Failed to fetch messages');
     }
 }
 
