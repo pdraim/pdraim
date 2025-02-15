@@ -28,6 +28,8 @@ class ChatState {
     private connectionAttemptTimeout: ReturnType<typeof setTimeout> | null = null;
     private _memoizedEnrichedMessages: EnrichedMessage[] | null = null;
     private _lastEnrichmentKey: string = '';
+    // Flag to avoid re-registering SSE event handlers
+    private sseHandlersRegistered = false;
 
     public async reinitialize() {
         if (this.isInitializing) {
@@ -473,8 +475,11 @@ class ChatState {
     }
 
     private setupSSE() {
-        console.debug('Setting up SSE connection for chat messages');
-        
+        // Prevent creating multiple SSE connections if one is already active.
+        if (this.eventSource && this.eventSource.readyState !== EventSource.CLOSED) {
+            console.debug('setupSSE: Active SSE connection exists, skipping setup.');
+            return;
+        }
         // Clear any existing timeouts
         if (this.connectionTimeout) {
             clearTimeout(this.connectionTimeout);
@@ -520,6 +525,8 @@ class ChatState {
             
             console.debug('Connecting to SSE...');
             this.eventSource = new EventSource('/api/sse', { withCredentials: true });
+            // Reset the handlers flag for the new connection
+            this.sseHandlersRegistered = false;
             
             this.eventSource.onopen = () => {
                 console.debug('SSE connection established');
@@ -538,8 +545,8 @@ class ChatState {
                 }
             };
             
-            // Set up message handling
-            this.setupMessageHandlers(this.eventSource);
+            // Register event handlers (only once)
+            this.setupMessageHandlers();
             
         } catch (error) {
             console.debug('Error setting up SSE connection:', error);
@@ -549,15 +556,25 @@ class ChatState {
         }
     }
 
-    private setupMessageHandlers(eventSource: EventSource) {
+    // Register SSE event handlers only once per connection.
+    private setupMessageHandlers() {
+        if (this.sseHandlersRegistered) {
+            console.debug('SSE message handlers already registered, skipping.');
+            return;
+        }
+
+        if (!this.eventSource) {
+            console.debug('No SSE connection available for registering handlers, skipping.');
+            return;
+        }
+
         // Listen for chat messages
-        eventSource.addEventListener('chatMessage', async (event: MessageEvent) => {
+        this.eventSource.addEventListener('chatMessage', async (event: MessageEvent) => {
             try {
                 const messageData = JSON.parse(event.data) as Message;
                 console.debug('Received chat message via SSE:', messageData);
                 // Deduplicate and update messages array with the new message
                 this.messages = Array.from(new Map([...this.messages, messageData].map(m => [m.id, m])).values());
-                
                 // Ensure the sender's data is available
                 await this.ensureUserData(messageData.senderId);
             } catch (error) {
@@ -566,16 +583,17 @@ class ChatState {
         });
         
         // Listen for user status updates to update the buddy list dynamically
-        eventSource.addEventListener('userStatusUpdate', async (event: MessageEvent) => {
+        this.eventSource.addEventListener('userStatusUpdate', async (event: MessageEvent) => {
             try {
                 const statusUpdate = JSON.parse(event.data) as { userId: string; status: User['status']; lastSeen: number };
                 console.debug('Received userStatusUpdate via SSE:', statusUpdate);
-                // Update the user status and ensure buddy list is updated appropriately
                 this.updateUserStatus(statusUpdate.userId, statusUpdate.status, statusUpdate.lastSeen);
             } catch (error) {
                 console.debug('Error handling userStatusUpdate via SSE:', error);
             }
         });
+
+        this.sseHandlersRegistered = true;
     }
 
     private async ensureUserData(userId: string) {
@@ -606,10 +624,20 @@ class ChatState {
         this.reconnectAttempts++;
         if (this.reconnectAttempts > this.maxReconnectAttempts) {
             console.debug('Max reconnect attempts reached, giving up');
+            if (this.eventSource) {
+                this.eventSource.close();
+            }
             this.eventSource = null;
             return;
         }
         this.reconnectDelay *= 2; // Exponential backoff
+        // Ensure any existing connection is properly closed before reconnecting
+        if (this.eventSource) {
+            this.eventSource.close();
+            this.eventSource = null;
+        }
+        // Reset the handlers flag so that the new connection gets its event listeners registered fresh.
+        this.sseHandlersRegistered = false;
         this.setupSSE();
     }
 
