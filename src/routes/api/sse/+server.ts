@@ -10,6 +10,9 @@ import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { eq, and, lt } from 'drizzle-orm';
 import { createSafeUser } from '$lib/types/chat';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('sse-server');
 
 console.log('[SSE] Server initialized');
 
@@ -35,7 +38,7 @@ function startTimeoutCheck() {
 
     timeoutInterval = setInterval(async () => {
         const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
-        console.log('[SSE] Checking for timed out users', { 
+        log.debug('Checking for timed out users', { 
             checkTime: new Date().toISOString(),
             timeoutThreshold: new Date(timeoutThreshold).toISOString()
         });
@@ -60,13 +63,13 @@ function startTimeoutCheck() {
                 });
 
             if (result.length > 0) {
-                console.log('[SSE] Found timed out users:', result.map(user => ({
-                    nickname: user.nickname,
-                    lastSeen: new Date(user.lastSeen || 0).toISOString()
-                })));
+                log.info('User status updated to offline', {
+                    usersUpdated: result.length,
+                    timeoutThreshold: new Date(timeoutThreshold).toISOString()
+                });
             }
         } catch (error) {
-            console.error('[SSE] Error during timeout check:', error);
+            log.error('Error during timeout check', { error });
         }
     }, CHECK_INTERVAL_MS);
 }
@@ -81,7 +84,7 @@ function startBuddyListUpdateInterval() {
             const now = Date.now();
             // Only fetch and broadcast if 10 seconds have passed since last update
             if (now - lastBuddyListUpdate >= BUDDY_LIST_BROADCAST_INTERVAL) {
-                console.log('[SSE] Broadcasting buddy list update...');
+                log.debug('Broadcasting buddy list update...');
                 // Query the complete buddy list from the database.
                 const buddyList = await db.select().from(users);
                 // Use createSafeUser to properly sanitize user data
@@ -98,7 +101,7 @@ function startBuddyListUpdateInterval() {
                 lastBuddyListUpdate = now;
             }
         } catch (error) {
-            console.error('[SSE] Error fetching buddy list for update:', error);
+            log.error('Error fetching buddy list for update', { error });
         }
     }, 1000); // Check every second but only broadcast every 10 seconds
 }
@@ -108,9 +111,9 @@ if (!globalThis.__sseIntervalsStarted) {
     startTimeoutCheck();
     startBuddyListUpdateInterval();
     globalThis.__sseIntervalsStarted = true;
-    console.log('[SSE] Started global intervals for timeout and buddy list updates.');
+    log.info('Started global intervals for timeout and buddy list updates');
 } else {
-    console.log('[SSE] Global intervals already started, skipping initialization.');
+    log.debug('Global intervals already started, skipping initialization');
 }
 
 // Ensure the interval is cleared if the module is reloaded
@@ -134,17 +137,14 @@ if (typeof process !== 'undefined') {
     });
 }
 
-export const GET: RequestHandler = async ({ request, locals, cookies }) => {
-    console.log('[SSE] Connection attempt:', {
-        hasLocals: !!locals,
-        hasUser: !!locals.user,
-        userId: locals.user?.id,
-        hasSessionCookie: !!cookies.get('session'),
-        headers: Object.fromEntries(request.headers.entries())
+export const GET: RequestHandler = async ({ request, locals,  }) => {
+    log.debug('Processing SSE request', {
+        url: request.url,
+        userId: locals.user?.id
     });
 
     if (!locals.user) {
-        console.log('[SSE] Authentication failed - no user in locals');
+        log.warn('Authentication failed - no user in locals');
         return new Response('Unauthorized', { 
             status: 401,
             headers: {
@@ -168,7 +168,7 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             })
             .where(eq(users.id, userId));
 
-        console.log('[SSE] User status updated to online:', {
+        log.info('User status updated to online', {
             userId: `${userId.slice(0, 4)}...${userId.slice(-4)}`,
             timestamp: new Date(now).toISOString()
         });
@@ -182,7 +182,7 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             }
         });
     } catch (error) {
-        console.error('[SSE] Error updating user status:', error);
+        log.error('Error updating user status', { error });
     }
 
     const stream = new ReadableStream({
@@ -193,10 +193,10 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
                                     `data: ${JSON.stringify(event.data)}\n\n`;
                     controller.enqueue(encoder.encode(payload));
                     if (!['userStatusUpdate', 'chatMessage'].includes(event.type)) {
-                        console.log('[SSE] Event sent:', { type: event.type });
+                        log.info('Event sent', { type: event.type });
                     }
-                } catch {
-                    console.log('[SSE] Error sending event');
+                } catch (error) {
+                    log.error('Error sending event', { error });
                 }
             };
 
@@ -208,10 +208,10 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             request.signal.addEventListener('abort', () => {
                 if (onSSE) {
                     sseEmitter.removeListener('sse', onSSE);
-                    console.log('[SSE] Removed listener due to abort signal.');
+                    log.info('Removed listener due to abort signal');
                 }
             });
-            console.log('[SSE] Added new listener');
+            log.info('Added new listener');
 
             controller.enqueue(encoder.encode('data: Connected\n\n'));
 
@@ -223,7 +223,7 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             if (keepAliveInterval) clearInterval(keepAliveInterval);
             if (onSSE) sseEmitter.removeListener('sse', onSSE);
             const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
-            console.log('[SSE] Connection closed:', { userId: maskedUserId, reason });
+            log.info('Connection closed', { userId: maskedUserId, reason });
 
             const now = Date.now();
             await db.update(users)

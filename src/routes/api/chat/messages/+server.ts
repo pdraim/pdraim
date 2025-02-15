@@ -15,6 +15,9 @@ import { chatRooms, DEFAULT_CHAT_ROOM_ID } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { ensureDefaultChatRoom } from '$lib/db/schema';
 import { messageCache } from '$lib/cache/message-cache';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('chat-server');
 
 // Rate limiting configuration
 const INITIAL_COOLDOWN = 1000; // 1 second
@@ -54,7 +57,7 @@ async function initializeCache() {
     if (isCacheInitialized) return;
     
     try {
-        console.log('[Chat] Initializing message cache');
+        log.info('Initializing message cache');
         // Fetch messages from all rooms, limited to last 100 per room
         const fetchedMessages = await db.select()
             .from(messages)
@@ -66,12 +69,12 @@ async function initializeCache() {
         
         // Log cache stats after initialization
         const stats = messageCache.getCacheStats();
-        console.log('[Chat] Message cache initialized successfully:', {
+        log.info('Message cache initialized successfully', {
             roomCount: stats.roomCount,
             totalMessages: stats.totalMessages
         });
     } catch (error) {
-        console.error('[Chat] Failed to initialize message cache:', error);
+        log.error('Failed to initialize message cache', { error });
         // Don't set isCacheInitialized to true on error
     }
 }
@@ -79,47 +82,44 @@ async function initializeCache() {
 // GET endpoint: fetch messages from cache or DB
 export async function GET({ request, locals }) {
     const url = new URL(request.url);
-    const isPublic = url.searchParams.get('public') === 'true';
-    const roomId = url.searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
     const beforeTimestamp = url.searchParams.get('before');
-    
-    if (!isPublic && !locals.user) {
-        throw error(401, 'Authentication required');
-    }
+    const roomId = url.searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
+    let fetchedMessages: Message[] = [];
 
     try {
         // Ensure default chat room exists
         await ensureDefaultChatRoom(db);
-        
-        let fetchedMessages: Message[];
-        if (isPublic) {
-            if (!isCacheInitialized) {
-                await initializeCache();
+
+        // Initialize cache if needed
+        if (!isCacheInitialized) {
+            await initializeCache();
+        }
+
+        // Try to get messages from cache first
+        if (!beforeTimestamp) {
+            log.debug('Attempting to fetch messages from cache', { roomId });
+            const cachedMessages = messageCache.getMessages(roomId);
+            if (cachedMessages && cachedMessages.length > 0) {
+                log.debug('Messages found in cache', { 
+                    roomId,
+                    messageCount: cachedMessages.length
+                });
+                fetchedMessages = cachedMessages;
             }
-            
-            if (beforeTimestamp) {
-                // For public users requesting older messages, fetch from DB with limit
-                console.log('[Chat] Fetching public messages from DB before timestamp:', beforeTimestamp);
-                const query = db.select()
-                    .from(messages)
-                    .where(and(
-                        eq(messages.chatRoomId, roomId),
-                        lt(messages.timestamp, parseInt(beforeTimestamp))
-                    ))
-                    .orderBy(desc(messages.timestamp))
-                    .limit(10);
-                fetchedMessages = (await query).reverse();
-            } else {
-                console.log('[Chat] Fetching public messages from cache', { roomId });
-                fetchedMessages = messageCache.getMessages(roomId, 10);
-            }
-        } else {
+        }
+
+        // If no cached messages or pagination request, fetch from DB
+        if (fetchedMessages.length === 0) {
             if (!locals.user) {
+                log.warn('Authentication required');
                 throw error(401, 'Authentication required');
             }
             
             if (beforeTimestamp) {
-                console.log('[Chat] Fetching messages from DB before timestamp:', beforeTimestamp);
+                log.debug('Fetching messages from DB before timestamp', { 
+                    roomId,
+                    beforeTimestamp
+                });
                 const query = db.select()
                     .from(messages)
                     .where(and(
@@ -130,7 +130,7 @@ export async function GET({ request, locals }) {
                     .limit(100);
                 fetchedMessages = (await query).reverse();
             } else {
-                console.log('[Chat] Fetching messages from DB for instant chat', { roomId });
+                log.debug('Fetching messages from DB for instant chat', { roomId });
                 const query = db.select()
                     .from(messages)
                     .where(eq(messages.chatRoomId, roomId))
@@ -153,7 +153,10 @@ export async function GET({ request, locals }) {
             }
         );
     } catch (error) {
-        console.log('[Chat] Error fetching messages:', error);
+        log.error('Error fetching messages', { 
+            error: error instanceof Error ? error.message : 'Unknown error',
+            roomId
+        });
         const errorResponse: GetMessagesResponse = {
             success: false,
             error: 'Failed to fetch messages'
@@ -171,16 +174,20 @@ export async function GET({ request, locals }) {
 // POST endpoint: receive a new message, save it in the DB, and broadcast via SSE
 export async function POST({ request, locals }: { request: Request, locals: App.Locals }) {
     if (!locals.user) {
+        log.warn('Authentication required');
         throw error(401, 'Authentication required');
     }
 
-    console.log('[Chat] New message received');
+    log.debug('New message received');
     try {
         // Check rate limiting
         const { canSend, retryAfter } = updateUserCooldown(locals.user.id);
         if (!canSend) {
             const maskedUserId = `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}`;
-            console.log('[Chat] Rate limited:', { userId: maskedUserId, retryAfter });
+            log.warn('Rate limited', { 
+                userId: maskedUserId, 
+                retryAfter 
+            });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Please wait before sending another message',
@@ -201,7 +208,10 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         const data = await request.json() as SendMessageRequest;
         if (!data.content || !data.userId) {
-            console.log('[Chat] Invalid payload received');
+            log.warn('Invalid payload received', { 
+                hasContent: Boolean(data.content),
+                hasUserId: Boolean(data.userId)
+            });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Invalid message payload'
@@ -210,6 +220,10 @@ export async function POST({ request, locals }: { request: Request, locals: App.
         }
 
         if (data.userId !== locals.user.id) {
+            log.warn('Unauthorized message attempt', {
+                requestedUserId: data.userId,
+                actualUserId: `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}`
+            });
             throw error(403, 'Cannot post messages as another user');
         }
 
@@ -223,7 +237,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             .get();
 
         if (!chatRoom) {
-            console.log('[Chat] Chat room not found:', chatRoomId);
+            log.warn('Chat room not found', { chatRoomId });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Chat room not found'
@@ -239,7 +253,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         if (!user) {
             const maskedUserId = `${data.userId.slice(0, 4)}...${data.userId.slice(-4)}`;
-            console.log('[Chat] User not found:', maskedUserId);
+            log.warn('User not found', { maskedUserId });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'User not found'
@@ -249,7 +263,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         const newMessage: Message = {
             id: uuidv4(),
-            chatRoomId: data.chatRoomId || DEFAULT_CHAT_ROOM_ID,
+            chatRoomId,
             senderId: data.userId,
             content: data.content,
             type: data.type || 'chat',
@@ -258,7 +272,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         // Save to DB
         await db.insert(messages).values(newMessage);
-        console.log('[Chat] Message saved in DB', { 
+        log.debug('Message saved in DB', { 
             messageId: newMessage.id,
             chatRoomId: newMessage.chatRoomId,
             type: newMessage.type,
@@ -267,13 +281,19 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         // Update message cache
         messageCache.addMessage(newMessage);
-        console.debug('[Chat] Message added to cache', {
+        log.debug('Message added to cache', {
             messageId: newMessage.id,
             chatRoomId: newMessage.chatRoomId
         });
 
         // Broadcast the new message via the unified SSE emitter
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });
+
+        log.debug('Message processed successfully', {
+            messageId: newMessage.id,
+            userId: `${newMessage.senderId.slice(0, 4)}...${newMessage.senderId.slice(-4)}`,
+            roomId: newMessage.chatRoomId
+        });
 
         const successResponse: SendMessageResponse = {
             success: true,
@@ -287,8 +307,10 @@ export async function POST({ request, locals }: { request: Request, locals: App.
                 headers: { 'Content-Type': 'application/json' } 
             }
         );
-    } catch {
-        console.log('[Chat] Error processing message');
+    } catch (error) {
+        log.error('Error processing message', { 
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
         const errorResponse: SendMessageResponse = {
             success: false,
             error: 'Failed to save message'
@@ -301,4 +323,4 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             }
         );
     }
-} 
+}

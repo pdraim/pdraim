@@ -5,21 +5,26 @@ import { eq } from 'drizzle-orm';
 import { validateSessionToken, generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
 import { createSafeUser } from '$lib/types/chat';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('status-server');
 
 export async function POST({ request, cookies, locals }) {
     if (!locals.user) {
+        log.warn('Authentication required');
         throw error(401, 'Authentication required');
     }
 
     const { status } = await request.json();
     const validStatuses = ['online', 'away', 'busy', 'offline'];
     if (!validStatuses.includes(status)) {
+        log.warn('Invalid status received', { status });
         throw error(400, 'Invalid status');
     }
 
     const userId = locals.user.id;
     const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
-    console.log('[Status] Updating user status:', { userId: maskedUserId, status });
+    log.debug('Updating user status', { userId: maskedUserId, status });
 
     const now = Date.now();
 
@@ -33,7 +38,7 @@ export async function POST({ request, cookies, locals }) {
         .where(eq(users.id, userId))
         .returning()
         .get();
-    console.log('[Status] Database updated successfully');
+    log.debug('Database updated successfully', { userId: maskedUserId, status });
 
     // Renew session if status is online and session is near expiry
     if (status === 'online') {
@@ -47,7 +52,10 @@ export async function POST({ request, cookies, locals }) {
                     const newToken = generateSessionToken();
                     const newSession = await createSession(newToken, userId);
                     setSessionTokenCookie({ cookies }, newToken, newSession.expiresAt);
-                    console.log('[Status] Session renewed:', { userId: maskedUserId, expiresAt: new Date(newSession.expiresAt).toISOString() });
+                    log.info('Session renewed', { 
+                        userId: maskedUserId, 
+                        expiresAt: new Date(newSession.expiresAt).toISOString() 
+                    });
                 }
             }
         }

@@ -6,33 +6,36 @@ import db from "$lib/db/db.server";
 import { handleRateLimit } from "$lib/api/rate-limiter";
 import { users } from "$lib/db/schema";
 import { initializeMessageCache } from "$lib/cache/initialize-cache";
+import { createLogger } from "$lib/utils/logger.server";
+
+const log = createLogger('hooks-server');
 
 async function setAllUsersOffline() {
     try {
-        console.log("Setting all users to offline status...");
+        log.info("Setting all users to offline status...");
         await db.update(users)
             .set({ 
                 status: "offline"
             });
-        console.log("Successfully set all users to offline status");
+        log.info("Successfully set all users to offline status");
     } catch (error) {
-        console.error("Failed to set users offline:", error);
+        log.error("Failed to set users offline", { error });
     }
 }
 
 // Initialize database when the server starts
-console.debug("Initializing database on server start...");
+log.debug("Initializing database on server start...");
 initializeDatabase()
     .then(async () => {
         await setAllUsersOffline();
         await initializeMessageCache();
     })
     .catch(error => {
-        console.error('Failed to initialize database:', error);
+        log.error('Failed to initialize database', { error });
     });
 
 export const handle: Handle = async ({ event, resolve }) => {
-    console.debug("Handling request:", event.url.pathname);
+    log.debug("Handling request", { path: event.url.pathname });
     
     // Identify public chat and room requests
     const isPublicChatRequest = 
@@ -69,7 +72,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     // Handle public chat/room requests
     if (isPublicChatRequest || isPublicRoomRequest) {
-        console.debug("Public request accessed:", event.url.pathname);
+        log.debug("Public request accessed", { path: event.url.pathname });
         event.locals.user = null;
         event.locals.session = null; // Public access doesn't require a session
         const response = await resolve(event);
@@ -78,11 +81,11 @@ export const handle: Handle = async ({ event, resolve }) => {
     
     // Handle public routes: if token exists, validate and propagate
     if (publicRoutes.includes(event.url.pathname)) {
-        console.debug("Public route accessed:", event.url.pathname);
+        log.debug("Public route accessed", { path: event.url.pathname });
         if (token) {
             const { session, user } = await validateSessionToken(token);
             if (session !== null) {
-                console.debug("Valid session found on public route for user:", user?.nickname);
+                log.debug("Valid session found on public route", { user: user?.nickname });
                 setSessionTokenCookie(event, token, session.expiresAt);
                 event.locals.session = session;
                 event.locals.user = user;
@@ -94,7 +97,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     
     // Protected routes: ensure authentication
     if (token === null) {
-        console.debug("No session token found");
+        log.debug("No session token found");
         event.locals.user = null;
         event.locals.session = null;
         const response = new Response("Unauthorized", { status: 401 });
@@ -103,12 +106,12 @@ export const handle: Handle = async ({ event, resolve }) => {
     
     const { session, user } = await validateSessionToken(token);
     if (session !== null) {
-        console.debug("Valid session found for user:", user?.nickname);
+        log.debug("Valid session found", { user: user?.nickname });
         setSessionTokenCookie(event, token, session.expiresAt);
         event.locals.session = session;
         event.locals.user = user;
     } else {
-        console.debug("Invalid session token");
+        log.debug("Invalid session token");
         deleteSessionTokenCookie(event);
         event.locals.session = null;
         event.locals.user = null;
@@ -118,7 +121,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     
     // After authentication, ensure SSE endpoint does not trigger rate limiting
     if (event.url.pathname.startsWith('/api/sse') && !event.locals.user) {
-        console.debug("SSE endpoint accessed without valid session, returning 401 without rate limiting");
+        log.debug("SSE endpoint accessed without valid session, returning 401 without rate limiting");
         return addDebugHeaders(new Response("Unauthorized", { status: 401 }));
     }
 

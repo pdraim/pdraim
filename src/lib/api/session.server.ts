@@ -2,6 +2,9 @@ import db from '../db/db.server';
 import { sessions, users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import type { Session, User } from '../types/chat';
+import { createLogger } from '../utils/logger.server';
+
+const log = createLogger('session-server');
 
 // Helper: Compute SHA-256 hash of a message and encode it as a hex string.
 export async function sha256(message: string): Promise<string> {
@@ -41,14 +44,14 @@ export function generateSessionToken(): string {
   const randomBytesArray = new Uint8Array(20);
   crypto.getRandomValues(randomBytesArray);
   const token = base32Encode(randomBytesArray);
-  console.debug("Generated session token:", token);
+  log.debug("Generated session token", { token });
   return token;
 }
 
 // Create a session record once a valid token is available.
 // The session ID is the SHA-256 hash of the token.
 export async function createSession(token: string, userId: string): Promise<Session> {
-  console.debug("Creating session for user:", userId);
+  log.debug("Creating session", { userId });
   const sessionId = await sha256(token);
   const createdAt = Date.now();
   const expiresAt = createdAt + 24 * 60 * 60 * 1000; // 24 hours expiry
@@ -58,7 +61,7 @@ export async function createSession(token: string, userId: string): Promise<Sess
     createdAt,
     expiresAt,
   });
-  console.debug("Session created with id:", sessionId);
+  log.debug("Session created", { sessionId });
   return { id: sessionId, userId, createdAt, expiresAt };
 }
 
@@ -73,41 +76,41 @@ export type SessionValidationResult =
 
 // Validate a session token by converting it to its SHA‑256 hash, checking expiration, and fetching the user.
 export async function validateSessionToken(token: string): Promise<SessionValidationResult> {
-  console.debug("Validating session token:", token);
+  log.debug("Validating session token");
   const sessionId = await sha256(token);
   const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId)
   });
   if (!session) {
-    console.debug("Session not found for id:", sessionId);
+    log.debug("Session not found", { sessionId });
     return { session: null, user: null };
   }
   const now = Date.now();
   if (session.expiresAt < now) {
-    console.debug("Session expired for id:", sessionId);
+    log.debug("Session expired", { sessionId });
     return { session: null, user: null };
   }
   const user = await db.query.users.findFirst({
     where: eq(users.id, session.userId)
   });
   if (!user) {
-    console.debug("User not found for session id:", sessionId);
+    log.debug("User not found for session", { sessionId });
     return { session: null, user: null };
   }
-  console.debug("Session validated for id:", sessionId);
+  log.debug("Session validated", { sessionId, userId: user.id });
   return { session, user };
 }
 
 // Invalidate a specific session by deleting it from the database.
 export async function invalidateSession(sessionId: string): Promise<void> {
-  console.debug("Invalidating session with id:", sessionId);
+  log.debug("Invalidating session", { sessionId });
   await db.delete(sessions).where(eq(sessions.id, sessionId));
-  console.debug("Session invalidated:", sessionId);
+  log.debug("Session invalidated", { sessionId });
 }
 
 // Invalidate all sessions for a given user.
 export async function invalidateAllSessions(userId: string): Promise<void> {
-  console.debug("Invalidating all sessions for user:", userId);
+  log.debug("Invalidating all sessions for user", { userId });
   await db.delete(sessions).where(eq(sessions.userId, userId));
-  console.debug("All sessions invalidated for user:", userId);
+  log.debug("All sessions invalidated", { userId });
 } 

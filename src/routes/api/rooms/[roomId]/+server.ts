@@ -4,7 +4,9 @@ import { messages, users } from '$lib/db/schema';
 import type { PublicRoomResponse } from '$lib/types/payloads';
 import { error } from '@sveltejs/kit';
 import { createSafeUser } from '$lib/types/chat';
+import { createLogger } from '$lib/utils/logger.server';
 
+const log = createLogger('rooms-server');
 
 export async function GET({ params, url, locals }): Promise<Response> {
   const { roomId } = params;
@@ -12,11 +14,12 @@ export async function GET({ params, url, locals }): Promise<Response> {
   
   // Check authentication for non-public requests
   if (!isPublic && !locals.user) {
+    log.warn('Authentication required');
     throw error(401, 'Authentication required');
   }
 
   try {
-    console.log('[Rooms] Fetching room data:', { 
+    log.debug('Fetching room data', { 
       roomId,
       isPublic,
       requestedBy: locals.user ? `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}` : 'public'
@@ -47,7 +50,7 @@ export async function GET({ params, url, locals }): Promise<Response> {
       buddyList: sanitizedUsers
     };
 
-    console.log('[Rooms] Successfully fetched room data:', { 
+    log.debug('Successfully fetched room data', { 
       roomId,
       userCount: sanitizedUsers.length,
       isPublic
@@ -57,8 +60,11 @@ export async function GET({ params, url, locals }): Promise<Response> {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
-  } catch {
-    console.log('[Rooms] Error fetching room data:', { roomId });
+  } catch (error) {
+    log.error('Error fetching room data', { 
+      roomId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
     const errorResponse: PublicRoomResponse = {
       success: false,
       error: 'Failed to fetch room data'

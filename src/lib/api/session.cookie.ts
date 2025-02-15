@@ -1,11 +1,15 @@
 import type { Cookies } from "@sveltejs/kit";
+import { createLogger } from "$lib/utils/logger.server";
+
+const log = createLogger('session-cookie');
 
 // Helper function to determine cookie domain
 function getCookieDomain(): string | undefined {
     if (process.env.NODE_ENV === 'production') {
         // Check for Cloudflare Pages domain
         if (process.env.CF_PAGES_URL) {
-            console.debug("Cloudflare Pages URL:", process.env.CF_PAGES_URL);
+            const url = process.env.CF_PAGES_URL;
+            log.debug("Cloudflare Pages URL:", { url });
             // For preview deployments, use host-only cookie
             if (process.env.CF_PAGES_BRANCH !== 'main') {
                 return undefined;
@@ -20,10 +24,10 @@ function getCookieDomain(): string | undefined {
 }
 
 export function setSessionTokenCookie({ cookies }: { cookies: Cookies }, token: string, expiresAt: number): void {
-    console.debug("Setting session cookie with expiry:", new Date(expiresAt));
+    log.debug("Setting session cookie with expiry:", new Date(expiresAt));
     
     const domain = getCookieDomain();
-    console.debug("Setting cookie for domain:", domain);
+    log.debug("Setting cookie for domain:", { domain });
         
     cookies.set("session", token, {
         httpOnly: true,
@@ -36,10 +40,10 @@ export function setSessionTokenCookie({ cookies }: { cookies: Cookies }, token: 
 }
 
 export function deleteSessionTokenCookie({ cookies }: { cookies: Cookies }): void {
-    console.debug("Deleting session cookie");
+    log.debug("Deleting session cookie");
     
     const domain = getCookieDomain();
-    console.debug("Deleting cookie for domain:", domain);
+    log.debug("Deleting cookie for domain:", { domain });
         
     cookies.set("session", "", {
         httpOnly: true,
@@ -52,6 +56,6 @@ export function deleteSessionTokenCookie({ cookies }: { cookies: Cookies }): voi
 }
 
 export function getSessionTokenCookie({ cookies }: { cookies: Cookies }): string | undefined {
-    console.debug("Getting session cookie");
+    log.debug("Getting session cookie");
     return cookies.get("session");
 } 

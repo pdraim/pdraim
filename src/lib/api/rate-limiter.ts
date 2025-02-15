@@ -1,4 +1,7 @@
 import type { RequestEvent } from '@sveltejs/kit';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('rate-limiter');
 
 const isDev = import.meta.env.DEV;
 
@@ -86,7 +89,7 @@ function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS, isAut
         
         // Check if we're over the limit
         if (validRequests.length >= points) {
-            console.debug(`Rate limit exceeded for IP ${ip} on ${endpointType} endpoint (${isAuthenticated ? 'authenticated' : 'unauthenticated'})`);
+            log.debug(`Rate limit exceeded for IP ${ip} on ${endpointType} endpoint (${isAuthenticated ? 'authenticated' : 'unauthenticated'})`);
             const oldestRequest = validRequests[0];
             const retryAfter = durationMs - (now - oldestRequest.timestamp);
             return { limited: true, retryAfter };
@@ -104,7 +107,7 @@ function isRateLimited(ip: string, endpointType: keyof typeof RATE_LIMITS, isAut
     const requests = ipRequests.get(ip) || [];
     const validRequests = requests.filter(req => now - req.timestamp < durationMs);
     
-    console.debug(`Rate limit check for ${ip} on ${endpointType}: ${validRequests.length}/${points} requests in the last ${durationMs/1000}s`);
+    log.debug(`Rate limit check for ${ip} on ${endpointType}: ${validRequests.length}/${points} requests in the last ${durationMs/1000}s`);
     
     if (validRequests.length >= points) {
         const oldestRequest = validRequests[0];

@@ -4,10 +4,13 @@ import { users } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { createSafeUser } from '$lib/types/chat';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('users-server');
 
 export const GET: RequestHandler = async ({ params }) => {
     const maskedUserId = `${params.userId.slice(0, 4)}...${params.userId.slice(-4)}`;
-    console.log('[Users] Fetching user data:', { userId: maskedUserId });
+    log.debug('Fetching user data', { userId: maskedUserId });
 
     try {
         const user = await db.select()
@@ -16,23 +19,27 @@ export const GET: RequestHandler = async ({ params }) => {
         .get();
 
         if (!user) {
-            console.log('[Users] User not found:', { userId: maskedUserId });
+            log.warn('User not found', { userId: maskedUserId });
             throw error(404, 'User not found');
         }
 
         const safeUser = createSafeUser(user);
 
-        console.log('[Users] User data retrieved:', { 
+        log.debug('User data retrieved', { 
             userId: maskedUserId,
             status: safeUser.status,
             lastSeen: safeUser.lastSeen ? new Date(safeUser.lastSeen).toISOString() : null
         });
+        
         return json({
             success: true,
             user: safeUser
         });
-    } catch {
-        console.log('[Users] Error fetching user data:', { userId: maskedUserId });
+    } catch (err) {
+        log.error('Error fetching user data', { 
+            userId: maskedUserId,
+            error: err instanceof Error ? err.message : 'Unknown error'
+        });
         throw error(500, 'Failed to fetch user information');
     }
 };

@@ -4,6 +4,9 @@ import type { User, ChatRoom, Message, UserStatus, MessageType, Session } from "
 import { v4 as uuidv4 } from "uuid";
 import { eq } from "drizzle-orm";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import { createLogger } from "$lib/utils/logger.server";
+
+const log = createLogger('schema');
 
 // Default chat room ID - using a UUID to avoid collisions
 export const DEFAULT_CHAT_ROOM_ID = '00000000-0000-0000-0000-000000000001';
@@ -120,7 +123,7 @@ const schema = {
 
 // Function to ensure default chat room exists
 export async function ensureDefaultChatRoom(db: LibSQLDatabase<typeof schema>) {
-    console.debug('Ensuring default chat room exists...');
+    log.debug('Ensuring default chat room exists...');
     try {
         // Use a transaction to handle concurrent creation attempts
         await db.transaction(async (tx) => {
@@ -130,25 +133,25 @@ export async function ensureDefaultChatRoom(db: LibSQLDatabase<typeof schema>) {
                 .get();
 
             if (!defaultRoom) {
-                console.debug('Creating default chat room...');
+                log.debug('Creating default chat room...');
                 await tx.insert(chatRooms).values({
                     id: DEFAULT_CHAT_ROOM_ID,
                     name: 'General',
                     type: 'group',
                     createdAt: Date.now()
                 });
-                console.debug('Default chat room created successfully');
+                log.debug('Default chat room created successfully');
             } else {
-                console.debug('Default chat room already exists');
+                log.debug('Default chat room already exists');
             }
         });
     } catch (error: unknown) {
         // If the error is a unique constraint violation, another process probably created the room
         if (isLibSQLError(error) && error.code === 'SQLITE_CONSTRAINT') {
-            console.debug('Default chat room was created by another process');
+            log.debug('Default chat room was created by another process');
             return;
         }
-        console.error('Error ensuring default chat room:', error);
+        log.error('Error ensuring default chat room:', { error: error instanceof Error ? error.message : 'Unknown error' });
         throw error;
     }
 }
