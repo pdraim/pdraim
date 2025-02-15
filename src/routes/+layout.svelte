@@ -9,23 +9,25 @@
 	let statusInterval = $state<number | undefined>(undefined);
 	let lastUserUpdate = $state<string | null>(null);
 	let updateInProgress = $state(false);
+	let idleTimeout = $state<number | undefined>(undefined);
 
 	// New throttle state variables
 	let lastSentStatus = $state<string | null>(null);
 	let lastStatusSentAt = $state<number>(0);
-	const STATUS_UPDATE_INTERVAL = 15000; // Changed to 15 seconds
-	const THROTTLE_TIME_MS = 10000; // Changed to 10 seconds to prevent edge case overlaps
-	const FORCE_UPDATE_INTERVAL = 5 * 60000; // Force update every 5 minutes regardless of status change
+	let lastUserActivity = $state<number>(Date.now());
+	const STATUS_UPDATE_INTERVAL = 15000; // 15 seconds
+	const THROTTLE_TIME_MS = 10000; // 10 seconds
+	const FORCE_UPDATE_INTERVAL = 5 * 60000; // 5 minutes
+	const IDLE_TIMEOUT = 5 * 60000; // 5 minutes of inactivity = idle
 
-	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
+	type UserStatus = 'online' | 'offline' | 'busy' | 'idle';
+
+	async function updateUserStatus(status: UserStatus) {
 		if (!data.user?.id || updateInProgress) return;
 		
 		const now = Date.now();
 		const timeSinceLastUpdate = now - lastStatusSentAt;
 		
-		// Only update if:
-		// 1. Status has changed OR
-		// 2. We haven't updated in FORCE_UPDATE_INTERVAL (5 minutes)
 		if (
 			status === lastSentStatus && 
 			timeSinceLastUpdate < FORCE_UPDATE_INTERVAL &&
@@ -53,7 +55,6 @@
 		});
 
 		try {
-			// Add a small delay to ensure cookie is set after login
 			if (status === 'online' && !document.cookie.includes('session=')) {
 				console.debug('Waiting for session cookie before status update...');
 				await new Promise(resolve => setTimeout(resolve, 500));
@@ -71,6 +72,8 @@
 			if (!response.ok) {
 				console.error('Failed to update user status:', await response.json());
 			} else {
+				lastSentStatus = status;
+				lastStatusSentAt = now;
 				console.debug('Status update successful:', {
 					userId: data.user.id,
 					status,
@@ -84,12 +87,34 @@
 		}
 	}
 
+	function resetIdleTimer() {
+		if (idleTimeout) {
+			window.clearTimeout(idleTimeout);
+		}
+		
+		lastUserActivity = Date.now();
+		
+		if (lastSentStatus === 'idle') {
+			updateUserStatus('online');
+		}
+		
+		idleTimeout = window.setTimeout(() => {
+			if (isVisible && Date.now() - lastUserActivity >= IDLE_TIMEOUT) {
+				updateUserStatus('idle');
+			}
+		}, IDLE_TIMEOUT);
+	}
+
+	function handleUserActivity() {
+		resetIdleTimer();
+	}
+
 	function startStatusTicker() {
 		if (statusInterval) return;
 		
 		console.debug('Starting status ticker');
 		const tickHandler = () => {
-			if (isVisible) {
+			if (isVisible && lastSentStatus !== 'idle') {
 				updateUserStatus('online');
 			}
 		};
@@ -107,11 +132,13 @@
 	function handleVisibilityChange() {
 		if (!browser) return;
 		isVisible = document.visibilityState === 'visible';
-		updateUserStatus(isVisible ? 'online' : 'busy');
 		
 		if (isVisible) {
+			resetIdleTimer();
+			updateUserStatus('online');
 			startStatusTicker();
 		} else {
+			updateUserStatus('busy');
 			stopStatusTicker();
 		}
 	}
@@ -120,6 +147,12 @@
 		if (!browser) return;
 		console.debug('Running cleanup - Setting user status to offline');
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
+		window.removeEventListener('mousemove', handleUserActivity);
+		window.removeEventListener('keydown', handleUserActivity);
+		window.removeEventListener('click', handleUserActivity);
+		if (idleTimeout) {
+			window.clearTimeout(idleTimeout);
+		}
 		stopStatusTicker();
 		updateUserStatus('offline');
 	}
@@ -129,14 +162,27 @@
 
 		// Set initial online status
 		updateUserStatus('online');
+		
+		// Start monitoring for user activity
+		window.addEventListener('mousemove', handleUserActivity);
+		window.addEventListener('keydown', handleUserActivity);
+		window.addEventListener('click', handleUserActivity);
+		
+		// Initialize idle timer
+		resetIdleTimer();
 
-		// Start the status ticker (which will now only fire every minute)
+		// Start the status ticker
 		startStatusTicker();
 
 		// Add visibility change listener
 		document.addEventListener('visibilitychange', handleVisibilityChange);
+		
+		// Add beforeunload listener for cleanup
+		window.addEventListener('beforeunload', cleanup);
 
+		// Cleanup on component destroy
 		return () => {
+			cleanup();
 			window.removeEventListener('beforeunload', cleanup);
 		};
 	});
