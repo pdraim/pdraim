@@ -102,23 +102,6 @@ class MessageCache {
     }
 
     /**
-     * Get messages for authenticated users
-     */
-    public getMessages(roomId: string = DEFAULT_CHAT_ROOM_ID, limit: number = this.maxMessagesPerRoom): Message[] {
-        this.cleanExpiredRooms();
-        const cache = this.rooms.get(roomId);
-        
-        if (!cache) {
-            log.debug('[MessageCache] No messages found for room:', { roomId });
-            return [];
-        }
-
-        cache.lastUpdated = Date.now();
-        const messages = [...cache.messages];
-        return limit ? messages.slice(-limit) : messages;
-    }
-
-    /**
      * Get messages for public/non-authenticated users with strict limit
      */
     public getPublicMessages(roomId: string = DEFAULT_CHAT_ROOM_ID): Message[] {

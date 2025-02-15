@@ -14,7 +14,7 @@ export async function initializeMessageCache(): Promise<void> {
         return;
     }
     try {
-        log.debug('[Cache] Initializing message cache with pre-population.');
+        log.debug('[Cache] Initializing message cache with pre-population for public view.');
         const fetchedMessages = await db.select()
             .from(messages)
             .orderBy(desc(messages.timestamp))
@@ -23,7 +23,7 @@ export async function initializeMessageCache(): Promise<void> {
         await messageCache.initialize(fetchedMessages.reverse());
         isCacheInitialized = true;
         const stats = messageCache.getCacheStats();
-        log.debug('[Cache] Message cache initialized successfully:', {
+        log.debug('[Cache] Message cache initialized successfully for public view:', {
             roomCount: stats.roomCount,
             totalMessages: stats.totalMessages
         });

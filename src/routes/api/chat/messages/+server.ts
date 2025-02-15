@@ -87,41 +87,22 @@ export async function GET({ request, locals }) {
     let fetchedMessages: Message[] = [];
 
     try {
-        // Initialize cache if needed
-        if (!isCacheInitialized) {
-            await initializeCache();
-        }
-
-        // Try to get messages from cache first
-        if (!beforeTimestamp) {
-            log.debug('Attempting to fetch messages from cache', { 
-                roomId,
-                isAuthenticated: !!locals.session
-            });
-
-            // Use appropriate method based on authentication status
-            const cachedMessages = locals.session 
-                ? messageCache.getMessages(roomId)
-                : messageCache.getPublicMessages(roomId);
-
+        // For public users (non-authenticated), attempt to fetch messages from cache if no pagination is requested
+        if (!locals.session && !beforeTimestamp) {
+            if (!isCacheInitialized) {
+                await initializeCache();
+            }
+            log.debug('Attempting to fetch messages from cache for public view', { roomId });
+            const cachedMessages = messageCache.getPublicMessages(roomId);
             if (cachedMessages && cachedMessages.length > 0) {
-                log.debug('Messages found in cache', { 
-                    count: cachedMessages.length,
-                    roomId,
-                    isAuthenticated: !!locals.session
-                });
+                log.debug('Messages found in cache for public view', { count: cachedMessages.length, roomId });
                 fetchedMessages = cachedMessages;
             }
         }
 
         // If no cached messages or pagination requested, fetch from DB
         if (fetchedMessages.length === 0 || beforeTimestamp) {
-            log.debug('Fetching messages from database', { 
-                beforeTimestamp,
-                roomId,
-                isAuthenticated: !!locals.session
-            });
-
+            log.debug('Fetching messages from database', { beforeTimestamp, roomId, isAuthenticated: !!locals.session });
             let conditions = eq(messages.chatRoomId, roomId) as SQL<unknown>;
             
             if (beforeTimestamp) {
@@ -139,8 +120,8 @@ export async function GET({ request, locals }) {
                 .orderBy(desc(messages.timestamp))
                 .limit(fetchLimit);
 
-            // Update cache with new messages if not paginating
-            if (!beforeTimestamp && fetchedMessages.length > 0) {
+            // For public users, update cache with new messages if not paginating
+            if (!locals.session && !beforeTimestamp && fetchedMessages.length > 0) {
                 for (const msg of fetchedMessages) {
                     messageCache.addMessage(msg);
                 }
@@ -176,19 +157,16 @@ export async function POST({ request, locals }: { request: Request, locals: App.
         const { canSend, retryAfter } = updateUserCooldown(locals.user.id);
         if (!canSend) {
             const maskedUserId = `${locals.user.id.slice(0, 4)}...${locals.user.id.slice(-4)}`;
-            log.warn('Rate limited', { 
-                userId: maskedUserId, 
-                retryAfter 
-            });
+            log.warn('Rate limited', { userId: maskedUserId, retryAfter });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Please wait before sending another message',
                 retryAfter,
                 isRateLimited: true
             };
-            return new Response(JSON.stringify(errorResponse), { 
+            return new Response(JSON.stringify(errorResponse), {
                 status: 429,
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Retry-After': Math.ceil(retryAfter! / 1000).toString()
                 }
@@ -197,10 +175,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         const data = await request.json() as SendMessageRequest;
         if (!data.content || !data.userId) {
-            log.warn('Invalid payload received', { 
-                hasContent: Boolean(data.content),
-                hasUserId: Boolean(data.userId)
-            });
+            log.warn('Invalid payload received', { hasContent: Boolean(data.content), hasUserId: Boolean(data.userId) });
             const errorResponse: SendMessageResponse = {
                 success: false,
                 error: 'Invalid message payload'
@@ -216,7 +191,6 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             throw error(403, 'Cannot post messages as another user');
         }
 
-        // Validate that both the chat room and user exist
         const chatRoomId = data.chatRoomId || DEFAULT_CHAT_ROOM_ID;
         
         // Check chat room existence
@@ -261,28 +235,14 @@ export async function POST({ request, locals }: { request: Request, locals: App.
 
         // Save to DB
         await db.insert(messages).values(newMessage);
-        log.debug('Message saved in DB', { 
-            messageId: newMessage.id,
-            chatRoomId: newMessage.chatRoomId,
-            type: newMessage.type,
-            timestamp: newMessage.timestamp
-        });
+        log.debug('Message saved in DB', { messageId: newMessage.id, chatRoomId: newMessage.chatRoomId, type: newMessage.type, timestamp: newMessage.timestamp });
 
-        // Update message cache
-        messageCache.addMessage(newMessage);
-        log.debug('Message added to cache', {
-            messageId: newMessage.id,
-            chatRoomId: newMessage.chatRoomId
-        });
+        // Removed updating message cache for authenticated users; relying on SSE for real-time updates
 
         // Broadcast the new message via the unified SSE emitter
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });
 
-        log.debug('Message processed successfully', {
-            messageId: newMessage.id,
-            userId: `${newMessage.senderId.slice(0, 4)}...${newMessage.senderId.slice(-4)}`,
-            roomId: newMessage.chatRoomId
-        });
+        log.debug('Message processed successfully', { messageId: newMessage.id, userId: `${newMessage.senderId.slice(0, 4)}...${newMessage.senderId.slice(-4)}`, roomId: newMessage.chatRoomId });
 
         const successResponse: SendMessageResponse = {
             success: true,
@@ -297,9 +257,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             }
         );
     } catch (error) {
-        log.error('Error processing message', { 
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        log.error('Error processing message', { error: error instanceof Error ? error.message : 'Unknown error' });
         const errorResponse: SendMessageResponse = {
             success: false,
             error: 'Failed to save message'

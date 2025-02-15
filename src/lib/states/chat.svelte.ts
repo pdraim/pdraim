@@ -398,6 +398,7 @@ class ChatState {
         this.messages = uniqueMessages;
     }
 
+    // Note: For authenticated users, we no longer use the message cache. Messages are fetched directly from the database, and real-time updates are handled via SSE.
     async initializeMessages() {
         try {
             const response = await fetch('/api/chat/messages', {
