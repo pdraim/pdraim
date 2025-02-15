@@ -13,22 +13,31 @@
 	// New throttle state variables
 	let lastSentStatus = $state<string | null>(null);
 	let lastStatusSentAt = $state<number>(0);
-	const STATUS_UPDATE_INTERVAL = 5000; // 5 seconds
-	const THROTTLE_TIME_MS = 4000; // 4 seconds to prevent edge case overlaps
+	const STATUS_UPDATE_INTERVAL = 15000; // Changed to 15 seconds
+	const THROTTLE_TIME_MS = 10000; // Changed to 10 seconds to prevent edge case overlaps
+	const FORCE_UPDATE_INTERVAL = 5 * 60000; // Force update every 5 minutes regardless of status change
 
 	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
 		if (!data.user?.id || updateInProgress) return;
 		
-		// Throttle duplicate status updates
+		const now = Date.now();
+		const timeSinceLastUpdate = now - lastStatusSentAt;
+		
+		// Only update if:
+		// 1. Status has changed OR
+		// 2. We haven't updated in FORCE_UPDATE_INTERVAL (5 minutes)
 		if (
-			status === lastSentStatus &&
-			Date.now() - lastStatusSentAt < THROTTLE_TIME_MS
+			status === lastSentStatus && 
+			timeSinceLastUpdate < FORCE_UPDATE_INTERVAL &&
+			timeSinceLastUpdate < THROTTLE_TIME_MS
 		) {
-			console.debug('Throttling duplicate status update:', status);
+			console.debug('Skipping status update - no change and within throttle period:', {
+				status,
+				timeSinceLastUpdate,
+				lastUpdate: new Date(lastStatusSentAt).toISOString()
+			});
 			return;
 		}
-		lastSentStatus = status;
-		lastStatusSentAt = Date.now();
 
 		updateInProgress = true;
 		const timestamp = new Date().toISOString();
@@ -36,6 +45,8 @@
 			userId: data.user.id,
 			status,
 			timestamp,
+			reason: status !== lastSentStatus ? 'status_changed' : 'force_update',
+			timeSinceLastUpdate,
 			trigger: new Error().stack?.split('\n')[2]?.trim(),
 			hasSession: true,
 			cookiePresent: browser ? document.cookie.includes('session=') : false
