@@ -13,7 +13,6 @@ import { sseEmitter } from '$lib/sseEmitter';
 import { chatRooms } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
-import { messageCache } from '$lib/cache/message-cache';
 import { createLogger } from '$lib/utils/logger.server';
 import { SQL } from 'drizzle-orm';
 
@@ -51,82 +50,30 @@ function updateUserCooldown(userId: string): { canSend: boolean; retryAfter?: nu
     return { canSend: true };
 }
 
-// Initialize message cache on server start
-let isCacheInitialized = false;
-async function initializeCache() {
-    if (isCacheInitialized) return;
-    
-    try {
-        log.info('Initializing message cache');
-        // Fetch messages from all rooms, limited to last 100 per room
-        const fetchedMessages = await db.select()
-            .from(messages)
-            .orderBy(desc(messages.timestamp))
-            .limit(500); // Increased limit to accommodate multiple rooms
-            
-        await messageCache.initialize(fetchedMessages.reverse());
-        isCacheInitialized = true;
-        
-        // Log cache stats after initialization
-        const stats = messageCache.getCacheStats();
-        log.info('Message cache initialized successfully', {
-            roomCount: stats.roomCount,
-            totalMessages: stats.totalMessages
-        });
-    } catch (error) {
-        log.error('Failed to initialize message cache', { error });
-        // Don't set isCacheInitialized to true on error
-    }
-}
-
-// GET endpoint: fetch messages from cache or DB
+// GET endpoint: fetch messages directly from DB
 export async function GET({ request, locals }) {
     const url = new URL(request.url);
     const beforeTimestamp = url.searchParams.get('before');
     const roomId = url.searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
-    let fetchedMessages: Message[] = [];
 
     try {
-        // For public users (non-authenticated), attempt to fetch messages from cache if no pagination is requested
-        if (!locals.session && !beforeTimestamp) {
-            if (!isCacheInitialized) {
-                await initializeCache();
-            }
-            log.debug('Attempting to fetch messages from cache for public view', { roomId });
-            const cachedMessages = messageCache.getPublicMessages(roomId);
-            if (cachedMessages && cachedMessages.length > 0) {
-                log.debug('Messages found in cache for public view', { count: cachedMessages.length, roomId });
-                fetchedMessages = cachedMessages;
-            }
+        log.debug('Fetching messages from database', { beforeTimestamp, roomId, isAuthenticated: !!locals.session });
+        let conditions = eq(messages.chatRoomId, roomId) as SQL<unknown>;
+        
+        if (beforeTimestamp) {
+            conditions = and(
+                conditions,
+                lt(messages.timestamp, parseInt(beforeTimestamp))
+            ) as SQL<unknown>;
         }
 
-        // If no cached messages or pagination requested, fetch from DB
-        if (fetchedMessages.length === 0 || beforeTimestamp) {
-            log.debug('Fetching messages from database', { beforeTimestamp, roomId, isAuthenticated: !!locals.session });
-            let conditions = eq(messages.chatRoomId, roomId) as SQL<unknown>;
-            
-            if (beforeTimestamp) {
-                conditions = and(
-                    conditions,
-                    lt(messages.timestamp, parseInt(beforeTimestamp))
-                ) as SQL<unknown>;
-            }
-
-            // Build and execute query with conditions
-            const fetchLimit = locals.session ? 100 : 10;
-            fetchedMessages = await db.select()
-                .from(messages)
-                .where(conditions)
-                .orderBy(desc(messages.timestamp))
-                .limit(fetchLimit);
-
-            // For public users, update cache with new messages if not paginating
-            if (!locals.session && !beforeTimestamp && fetchedMessages.length > 0) {
-                for (const msg of fetchedMessages) {
-                    messageCache.addMessage(msg);
-                }
-            }
-        }
+        // Fetch messages with a limit based on authentication status
+        const fetchLimit = locals.session ? 100 : 10;
+        const fetchedMessages = await db.select()
+            .from(messages)
+            .where(conditions)
+            .orderBy(desc(messages.timestamp))
+            .limit(fetchLimit);
 
         const response: GetMessagesResponse = {
             success: true,
@@ -237,9 +184,7 @@ export async function POST({ request, locals }: { request: Request, locals: App.
         await db.insert(messages).values(newMessage);
         log.debug('Message saved in DB', { messageId: newMessage.id, chatRoomId: newMessage.chatRoomId, type: newMessage.type, timestamp: newMessage.timestamp });
 
-        // Removed updating message cache for authenticated users; relying on SSE for real-time updates
-
-        // Broadcast the new message via the unified SSE emitter
+        // Broadcast the new message via SSE
         sseEmitter.emit('sse', { type: 'chatMessage', data: newMessage });
 
         log.debug('Message processed successfully', { messageId: newMessage.id, userId: `${newMessage.senderId.slice(0, 4)}...${newMessage.senderId.slice(-4)}`, roomId: newMessage.chatRoomId });
