@@ -34,39 +34,30 @@ initializeDatabase()
 export const handle: Handle = async ({ event, resolve }) => {
     console.debug("Handling request:", event.url.pathname);
     
-    // Apply rate limiting for API routes
-    const rateLimitResponse = await handleRateLimit(event);
-    if (rateLimitResponse) {
-        return rateLimitResponse;
-    }
-    
-    // Check if this is a public chat messages request
+    // Identify public chat and room requests
     const isPublicChatRequest = 
         event.url.pathname === '/api/chat/messages' && 
         event.url.searchParams.get('public') === 'true' &&
         event.request.method === 'GET';
-    
-    // Check if this is a public room request
     const isPublicRoomRequest = 
         event.url.pathname.startsWith('/api/rooms/') && 
         event.url.searchParams.get('public') === 'true' &&
         event.request.method === 'GET';
     
-    // Public routes that don't require authentication
+    // Public routes that don't require authentication (removed '/api/sse' here)
     const publicRoutes = [
         "/",
         "/api/session/login",
         "/api/session/validate",
         "/api/register",
         "/login",
-        "/register",
-        "/api/sse"
+        "/register"
     ];
     
     // Get session token from cookies
     const token = event.cookies.get("session") ?? null;
-
-    // Add debug headers for SSE requests
+    
+    // Function to add debug headers for SSE requests
     const addDebugHeaders = (response: Response) => {
         if (event.url.pathname.startsWith('/api/sse')) {
             response.headers.set('X-Debug-Has-Token', Boolean(token).toString());
@@ -76,7 +67,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         return response;
     };
 
-    // Handle public requests separately: always clear session
+    // Handle public chat/room requests
     if (isPublicChatRequest || isPublicRoomRequest) {
         console.debug("Public request accessed:", event.url.pathname);
         event.locals.user = null;
@@ -100,7 +91,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         const response = await resolve(event);
         return addDebugHeaders(response);
     }
-
+    
     // Protected routes: ensure authentication
     if (token === null) {
         console.debug("No session token found");
@@ -116,8 +107,6 @@ export const handle: Handle = async ({ event, resolve }) => {
         setSessionTokenCookie(event, token, session.expiresAt);
         event.locals.session = session;
         event.locals.user = user;
-        const response = await resolve(event);
-        return addDebugHeaders(response);
     } else {
         console.debug("Invalid session token");
         deleteSessionTokenCookie(event);
@@ -126,4 +115,21 @@ export const handle: Handle = async ({ event, resolve }) => {
         const response = new Response("Unauthorized", { status: 401 });
         return addDebugHeaders(response);
     }
+    
+    // After authentication, ensure SSE endpoint does not trigger rate limiting
+    if (event.url.pathname.startsWith('/api/sse') && !event.locals.user) {
+        console.debug("SSE endpoint accessed without valid session, returning 401 without rate limiting");
+        return addDebugHeaders(new Response("Unauthorized", { status: 401 }));
+    }
+
+    // For any request without an authenticated user, apply rate limiting
+    if (!event.locals.user) {
+        const rateLimitResponse = await handleRateLimit(event);
+        if (rateLimitResponse) {
+            return rateLimitResponse;
+        }
+    }
+    
+    const response = await resolve(event);
+    return addDebugHeaders(response);
 }; 
