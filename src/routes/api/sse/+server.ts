@@ -1,8 +1,15 @@
+// At the top of the file, before any code
+declare global {
+    // eslint-disable-next-line no-var
+    var __sseIntervalsStarted: boolean;
+}
+
 import type { RequestHandler } from './$types';
 import { sseEmitter } from '$lib/sseEmitter';
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { eq, and, lt } from 'drizzle-orm';
+import { createSafeUser } from '$lib/types/chat';
 
 console.log('[SSE] Server initialized');
 
@@ -10,7 +17,15 @@ console.log('[SSE] Server initialized');
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds
 
+// Update the interval constant
+const BUDDY_LIST_BROADCAST_INTERVAL = 10000; // 10 seconds
+
 let timeoutInterval: ReturnType<typeof setInterval>;
+let buddyListInterval: ReturnType<typeof setInterval>;
+
+// Add a timestamp tracker for buddy list updates
+let lastBuddyListUpdate = 0;
+let lastBuddyListData: unknown[] = [];
 
 // Initialize periodic check for timed out users
 function startTimeoutCheck() {
@@ -26,7 +41,6 @@ function startTimeoutCheck() {
         });
 
         try {
-            // Find and update users who haven't been seen recently
             const now = Date.now();
             const result = await db.update(users)
                 .set({ 
@@ -45,58 +59,82 @@ function startTimeoutCheck() {
                     lastSeen: users.lastSeen
                 });
 
-            // Log timeout results
             if (result.length > 0) {
                 console.log('[SSE] Found timed out users:', result.map(user => ({
                     nickname: user.nickname,
                     lastSeen: new Date(user.lastSeen || 0).toISOString()
                 })));
             }
-
-            // Broadcast status updates for timed out users
-            result.forEach(user => {
-                sseEmitter.emit('sse', {
-                    type: 'userStatusUpdate',
-                    data: {
-                        userId: user.id,
-                        status: 'offline',
-                        lastSeen: now
-                    }
-                });
-                console.log('[SSE] User timed out and marked offline:', {
-                    nickname: user.nickname,
-                    lastSeen: new Date(now).toISOString()
-                });
-            });
         } catch (error) {
             console.error('[SSE] Error during timeout check:', error);
         }
     }, CHECK_INTERVAL_MS);
 }
 
-// Start the timeout check when this module loads
-startTimeoutCheck();
+function startBuddyListUpdateInterval() {
+    if (buddyListInterval) {
+        clearInterval(buddyListInterval);
+    }
+
+    buddyListInterval = setInterval(async () => {
+        try {
+            const now = Date.now();
+            // Only fetch and broadcast if 10 seconds have passed since last update
+            if (now - lastBuddyListUpdate >= BUDDY_LIST_BROADCAST_INTERVAL) {
+                console.log('[SSE] Broadcasting buddy list update...');
+                // Query the complete buddy list from the database.
+                const buddyList = await db.select().from(users);
+                // Use createSafeUser to properly sanitize user data
+                const safeBuddyList = buddyList.map(user => createSafeUser(user));
+                
+                // Only broadcast if data has changed
+                if (JSON.stringify(safeBuddyList) !== JSON.stringify(lastBuddyListData)) {
+                    lastBuddyListData = safeBuddyList;
+                    sseEmitter.emit('sse', {
+                        type: 'buddyListUpdate',
+                        data: safeBuddyList
+                    });
+                }
+                lastBuddyListUpdate = now;
+            }
+        } catch (error) {
+            console.error('[SSE] Error fetching buddy list for update:', error);
+        }
+    }, 1000); // Check every second but only broadcast every 10 seconds
+}
+
+// <<< NEW: Ensure intervals are started only once >>>
+if (!globalThis.__sseIntervalsStarted) {
+    startTimeoutCheck();
+    startBuddyListUpdateInterval();
+    globalThis.__sseIntervalsStarted = true;
+    console.log('[SSE] Started global intervals for timeout and buddy list updates.');
+} else {
+    console.log('[SSE] Global intervals already started, skipping initialization.');
+}
 
 // Ensure the interval is cleared if the module is reloaded
 if (typeof process !== 'undefined') {
     process.on('beforeExit', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
+        if (buddyListInterval) clearInterval(buddyListInterval);
     });
     
     // Also handle SIGTERM and SIGINT
     process.on('SIGTERM', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
+        if (buddyListInterval) clearInterval(buddyListInterval);
         process.exit(0);
     });
     
     process.on('SIGINT', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
+        if (buddyListInterval) clearInterval(buddyListInterval);
         process.exit(0);
     });
 }
 
 export const GET: RequestHandler = async ({ request, locals, cookies }) => {
-    // Add detailed debug logging for authentication state
     console.log('[SSE] Connection attempt:', {
         hasLocals: !!locals,
         hasUser: !!locals.user,
@@ -120,7 +158,6 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
     let keepAliveInterval: ReturnType<typeof setInterval>;
     let onSSE: ((event: { type: string; data: unknown }) => void) | undefined;
 
-    // Update user status to online and lastSeen timestamp when establishing connection
     const now = Date.now();
     
     try {
@@ -136,7 +173,6 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             timestamp: new Date(now).toISOString()
         });
 
-        // Broadcast the status update
         sseEmitter.emit('sse', {
             type: 'userStatusUpdate',
             data: {
@@ -147,7 +183,6 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
         });
     } catch (error) {
         console.error('[SSE] Error updating user status:', error);
-        // Continue with SSE setup even if status update fails
     }
 
     const stream = new ReadableStream({
@@ -157,7 +192,6 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
                     const payload = `event: ${event.type}\n` +
                                     `data: ${JSON.stringify(event.data)}\n\n`;
                     controller.enqueue(encoder.encode(payload));
-                    // Only log non-sensitive event types
                     if (!['userStatusUpdate', 'chatMessage'].includes(event.type)) {
                         console.log('[SSE] Event sent:', { type: event.type });
                     }
@@ -179,10 +213,8 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             });
             console.log('[SSE] Added new listener');
 
-            // Send initial connection message
             controller.enqueue(encoder.encode('data: Connected\n\n'));
 
-            // Keep connection alive and update lastSeen: send a comment every 20 seconds
             keepAliveInterval = setInterval(() => {
                 controller.enqueue(encoder.encode(':\n\n'));
             }, 20000);
@@ -193,13 +225,11 @@ export const GET: RequestHandler = async ({ request, locals, cookies }) => {
             const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
             console.log('[SSE] Connection closed:', { userId: maskedUserId, reason });
 
-            // Update user status to offline in the database
             const now = Date.now();
             await db.update(users)
                 .set({ status: 'offline', lastSeen: now })
                 .where(eq(users.id, userId));
             
-            // Broadcast the status update
             sseEmitter.emit('sse', { 
                 type: 'userStatusUpdate', 
                 data: { 

@@ -29,8 +29,19 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
     timestamp: number;  // Timestamp when the message was sent
   }
 
+  // Safe user type for API responses - omits sensitive information
+  export type SafeUser = Omit<User, 'password' | 'createdAt'>;
+
+  // Helper function to create a safe user object
+  export function createSafeUser(user: User): SafeUser {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, createdAt, ...safeUser } = user;
+    return safeUser;
+  }
+
+  // Update EnrichedMessage to use SafeUser
   export interface EnrichedMessage extends Message {
-    user: User;
+    user: SafeUser;
   }
 
   export type MessageType = 'chat' | 'emote' | 'system' | string;

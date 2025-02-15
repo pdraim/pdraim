@@ -30,6 +30,8 @@ class ChatState {
     private _lastEnrichmentKey: string = '';
     // Flag to avoid re-registering SSE event handlers
     private sseHandlersRegistered = false;
+    private lastBuddyListUpdate = 0;
+    private lastBuddyListHash = '';
 
     public async reinitialize() {
         if (this.isInitializing) {
@@ -361,12 +363,31 @@ class ChatState {
 
     // Add method to update online users for public access
     updateOnlineUsers(users: User[]) {
-        console.debug('Updating online users:', users);
-        this.users = users;
-        // Also update cache
-        users.forEach(user => {
-            this.userCache[user.id] = user;
-        });
+        const now = Date.now();
+        // Create a hash of the new users data
+        const newHash = JSON.stringify(users);
+        
+        // Only update if the data has changed
+        if (newHash !== this.lastBuddyListHash) {
+            const statusCounts = users.reduce((acc, user) => {
+                acc[user.status] = (acc[user.status] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>);
+
+            console.debug('Updating online users (data changed):', {
+                total: users.length,
+                byStatus: statusCounts,
+                timestamp: new Date(now).toISOString()
+            });
+
+            this.users = users;
+            // Also update cache
+            users.forEach(user => {
+                this.userCache[user.id] = user;
+            });
+            this.lastBuddyListHash = newHash;
+            this.lastBuddyListUpdate = now;
+        }
     }
 
     // Add method to update messages for public access
@@ -558,13 +579,7 @@ class ChatState {
 
     // Register SSE event handlers only once per connection.
     private setupMessageHandlers() {
-        if (this.sseHandlersRegistered) {
-            console.debug('SSE message handlers already registered, skipping.');
-            return;
-        }
-
-        if (!this.eventSource) {
-            console.debug('No SSE connection available for registering handlers, skipping.');
+        if (this.sseHandlersRegistered || !this.eventSource) {
             return;
         }
 
@@ -582,14 +597,13 @@ class ChatState {
             }
         });
         
-        // Listen for user status updates to update the buddy list dynamically
-        this.eventSource.addEventListener('userStatusUpdate', async (event: MessageEvent) => {
+        // Modify buddy list update handler
+        this.eventSource.addEventListener('buddyListUpdate', async (event: MessageEvent) => {
             try {
-                const statusUpdate = JSON.parse(event.data) as { userId: string; status: User['status']; lastSeen: number };
-                console.debug('Received userStatusUpdate via SSE:', statusUpdate);
-                this.updateUserStatus(statusUpdate.userId, statusUpdate.status, statusUpdate.lastSeen);
+                const buddyList = JSON.parse(event.data) as User[];
+                this.updateOnlineUsers(buddyList);
             } catch (error) {
-                console.debug('Error handling userStatusUpdate via SSE:', error);
+                console.debug('Error handling buddy list update via SSE:', error);
             }
         });
 

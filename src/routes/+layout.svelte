@@ -13,7 +13,8 @@
 	// New throttle state variables
 	let lastSentStatus = $state<string | null>(null);
 	let lastStatusSentAt = $state<number>(0);
-	const THROTTLE_TIME_MS = 5000;
+	const STATUS_UPDATE_INTERVAL = 5000; // 5 seconds
+	const THROTTLE_TIME_MS = 4000; // 4 seconds to prevent edge case overlaps
 
 	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
 		if (!data.user?.id || updateInProgress) return;
@@ -82,8 +83,7 @@
 			}
 		};
 
-		statusInterval = window.setInterval(tickHandler, 60000); // Every minute
-		// Removed immediate tickHandler() call to avoid duplicate update on mount
+		statusInterval = window.setInterval(tickHandler, STATUS_UPDATE_INTERVAL);
 	}
 
 	function stopStatusTicker() {

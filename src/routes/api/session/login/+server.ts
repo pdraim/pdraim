@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { verifyPassword } from '$lib/utils/password';
 import { generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
+import { createSafeUser } from '$lib/types/chat';
 
 // In-memory map to track failed login attempts per IP
 const loginAttempts = new Map<string, { count: number, lastAttempt: number }>();
@@ -112,13 +113,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
     return new Response(JSON.stringify({ 
         success: true,
-        user: {
-            id: user.id,
-            nickname: user.nickname,
-            status: 'online',
-            avatarUrl: user.avatarUrl,
-            lastSeen: Date.now()
-        }
+        user: createSafeUser(user)
     } as LoginResponseSuccess), { 
         status: 200 
     });

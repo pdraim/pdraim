@@ -65,6 +65,7 @@ export async function createSession(token: string, userId: string): Promise<Sess
 /**
  * Type distributed through our API.
  * Returns an object with both session and user if valid, or nulls if not.
+ * Note: This returns the full User type since it's used server-side in hooks.
  */
 export type SessionValidationResult =
   | { session: Session; user: User }

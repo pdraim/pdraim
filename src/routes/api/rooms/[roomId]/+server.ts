@@ -3,6 +3,8 @@ import db from '$lib/db/db.server';
 import { messages, users } from '$lib/db/schema';
 import type { PublicRoomResponse } from '$lib/types/payloads';
 import { error } from '@sveltejs/kit';
+import { createSafeUser } from '$lib/types/chat';
+
 
 export async function GET({ params, url, locals }): Promise<Response> {
   const { roomId } = params;
@@ -37,9 +39,8 @@ export async function GET({ params, url, locals }): Promise<Response> {
     const fetchedUsers = await db.select()
       .from(users);
     
-    // Sanitize user data by removing sensitive fields
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const sanitizedUsers = fetchedUsers.map(({ password, ...userWithoutPassword }) => userWithoutPassword);
+    // Sanitize user data using createSafeUser
+    const sanitizedUsers = fetchedUsers.map(user => createSafeUser(user));
 
     const responseData: PublicRoomResponse = {
       success: true,

@@ -1,9 +1,9 @@
-import type { User, Message } from "./chat";
+import type { SafeUser, Message } from "./chat";
 
 // Login
 export interface LoginResponseSuccess {
 	success: true;
-	user: Omit<User, "password">;
+	user: SafeUser;
 }
 
 export interface LoginResponseError {
@@ -31,7 +31,7 @@ export type RegisterResponse = RegisterResponseSuccess | RegisterResponseError;
 // Session
 export interface SessionResponseSuccess {
 	success: true;
-	user: Omit<User, "password">;
+	user: SafeUser;
 }
 
 export interface SessionResponseError {
@@ -76,7 +76,7 @@ export type GetMessagesResponse = GetMessagesResponseSuccess | GetMessagesRespon
 
 export interface PublicRoomResponseSuccess {
     success: true;
-    buddyList: Omit<User, "password">[];
+    buddyList: SafeUser[];
 }
 
 export interface PublicRoomResponseError {

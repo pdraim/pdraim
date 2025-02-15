@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
-import { sseEmitter } from '$lib/sseEmitter';
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { validateSessionToken, generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
+import { createSafeUser } from '$lib/types/chat';
 
 export async function POST({ request, cookies, locals }) {
     if (!locals.user) {
@@ -25,12 +25,14 @@ export async function POST({ request, cookies, locals }) {
 
     // Update the user status in the database
     // Always update lastSeen to support timeout detection
-    await db.update(users)
+    const updatedUser = await db.update(users)
         .set({ 
             status, 
             lastSeen: now // Always update lastSeen for proper timeout detection
         })
-        .where(eq(users.id, userId));
+        .where(eq(users.id, userId))
+        .returning()
+        .get();
     console.log('[Status] Database updated successfully');
 
     // Renew session if status is online and session is near expiry
@@ -51,15 +53,11 @@ export async function POST({ request, cookies, locals }) {
         }
     }
 
-    // Broadcast the status update via SSE
-    sseEmitter.emit('sse', { 
-        type: 'userStatusUpdate', 
-        data: { 
-            userId, 
-            status, 
-            lastSeen: now // Always send the current timestamp
-        } 
+    return new Response(JSON.stringify({ 
+        success: true,
+        user: createSafeUser(updatedUser)
+    }), { 
+        status: 200, 
+        headers: { 'Content-Type': 'application/json' } 
     });
-
-    return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
