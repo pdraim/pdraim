@@ -1,7 +1,8 @@
 import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import { TURSO_AUTH_TOKEN, TURSO_DATABASE_URL } from '$env/static/private';
-import schema, { ensureDefaultChatRoom } from './schema';
+import schema from './schema';
+import { ensureDefaultChatRoom } from '$lib/utils/chat.server';
 import { createLogger } from '$lib/utils/logger.server';
 
 const log = createLogger('db-server');
