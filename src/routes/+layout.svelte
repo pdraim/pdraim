@@ -10,9 +10,25 @@
 	let lastUserUpdate = $state<string | null>(null);
 	let updateInProgress = $state(false);
 
+	// New throttle state variables
+	let lastSentStatus = $state<string | null>(null);
+	let lastStatusSentAt = $state<number>(0);
+	const THROTTLE_TIME_MS = 5000;
+
 	async function updateUserStatus(status: 'online' | 'offline' | 'busy') {
 		if (!data.user?.id || updateInProgress) return;
 		
+		// Throttle duplicate status updates
+		if (
+			status === lastSentStatus &&
+			Date.now() - lastStatusSentAt < THROTTLE_TIME_MS
+		) {
+			console.debug('Throttling duplicate status update:', status);
+			return;
+		}
+		lastSentStatus = status;
+		lastStatusSentAt = Date.now();
+
 		updateInProgress = true;
 		const timestamp = new Date().toISOString();
 		console.debug('Updating user status:', {
@@ -20,7 +36,7 @@
 			status,
 			timestamp,
 			trigger: new Error().stack?.split('\n')[2]?.trim(),
-			hasSession: !!data.session,
+			hasSession: true,
 			cookiePresent: browser ? document.cookie.includes('session=') : false
 		});
 
@@ -67,8 +83,7 @@
 		};
 
 		statusInterval = window.setInterval(tickHandler, 60000); // Every minute
-		// Run immediately on start
-		tickHandler();
+		// Removed immediate tickHandler() call to avoid duplicate update on mount
 	}
 
 	function stopStatusTicker() {
@@ -83,7 +98,6 @@
 		isVisible = document.visibilityState === 'visible';
 		updateUserStatus(isVisible ? 'online' : 'busy');
 		
-		// Start or stop the ticker based on visibility
 		if (isVisible) {
 			startStatusTicker();
 		} else {
@@ -105,18 +119,16 @@
 		// Set initial online status
 		updateUserStatus('online');
 
-		// Start the status ticker
+		// Start the status ticker (which will now only fire every minute)
 		startStatusTicker();
 
 		// Add visibility change listener
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 
-		// Cleanup on unmount
 		return () => {
 			window.removeEventListener('beforeunload', cleanup);
 		};
 	});
-
 
 	$effect(() => {
 		if (!browser) return;
@@ -146,7 +158,6 @@
 			isVisible
 		});
 		
-		// Only update chat state if we have valid session data
 		if (data.session?.id) {
 			console.debug('Updating global chatState with data.user:', data.user);
 			chatState.setCurrentUser(data.user);

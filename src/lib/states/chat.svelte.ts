@@ -194,14 +194,25 @@ class ChatState {
     }
 
     updateUserStatus(userId: string, status: User['status'], lastSeen?: number) {
-        console.debug('Updating user status with:', { 
-            userId, 
-            status, 
+        console.debug('Updating user status with:', {
+            userId,
+            status,
             lastSeen,
             currentCache: this.userCache[userId],
             currentUsers: this.users.find(u => u.id === userId)
         });
 
+        const existingUser = this.userCache[userId];
+        if (
+            existingUser &&
+            existingUser.status === status &&
+            lastSeen &&
+            Math.abs(existingUser.lastSeen ?? 0 - lastSeen) < 5000
+        ) {
+            console.debug('Skipping redundant status update for user:', userId);
+            return;
+        }
+        
         // Try to get the user from cache first
         let user: User | undefined = this.userCache[userId];
         
@@ -212,7 +223,7 @@ class ChatState {
                 user = foundUser;
             }
         }
-
+        
         const now = Date.now();
         if (user) {
             const updatedUser: User = {
@@ -221,10 +232,10 @@ class ChatState {
                 // Update lastSeen based on status
                 lastSeen: lastSeen ?? (status === 'offline' ? now : user.lastSeen)
             };
-
+            
             // Update cache first
             this.userCache[userId] = updatedUser;
-
+            
             // Then update or add to users array
             const index = this.users.findIndex((u: User) => u.id === userId);
             if (index !== -1) {
@@ -237,7 +248,7 @@ class ChatState {
             } else {
                 this.users = [...this.users, updatedUser];
             }
-
+            
             console.debug('User status updated:', {
                 userId,
                 newStatus: status,
@@ -551,6 +562,18 @@ class ChatState {
                 await this.ensureUserData(messageData.senderId);
             } catch (error) {
                 console.debug('Error handling SSE chat message:', error);
+            }
+        });
+        
+        // Listen for user status updates to update the buddy list dynamically
+        eventSource.addEventListener('userStatusUpdate', async (event: MessageEvent) => {
+            try {
+                const statusUpdate = JSON.parse(event.data) as { userId: string; status: User['status']; lastSeen: number };
+                console.debug('Received userStatusUpdate via SSE:', statusUpdate);
+                // Update the user status and ensure buddy list is updated appropriately
+                this.updateUserStatus(statusUpdate.userId, statusUpdate.status, statusUpdate.lastSeen);
+            } catch (error) {
+                console.debug('Error handling userStatusUpdate via SSE:', error);
             }
         });
     }
