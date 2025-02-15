@@ -8,6 +8,7 @@ import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
 import LoadingButton from './ui/button-loading.svelte';
 import Tooltip from './ui/tooltip.svelte';
+import LoadingDots from './ui/loading-dots.svelte';
 import { formatFrenchDateTime, formatFrenchRelativeTimeSafe } from '$lib/utils/date-format';
 
 // Initialize with default values for SSR
@@ -19,6 +20,7 @@ let isMobile = $state(false);
 let currentMessage = $state('');
 let showUserList = $state(false);
 let isMaximized = $state(false);
+let isInitialLoading = $state(true);
 
 // Rate limiting state
 let cooldownEndTime = $state<number | null>(null);
@@ -299,7 +301,16 @@ async function handleScroll(event: Event) {
     // Check if we've scrolled near the top (within 100px) and not already loading
     if (scrollTop < 100 && !isLoadingMore && hasMoreMessages) {
         isLoadingMore = true;
-        console.debug('Loading more messages...', { oldestMessageTimestamp });
+        
+        // Store the scroll height and position before loading
+        const scrollHeight = chatArea.scrollHeight;
+        const currentScrollTop = chatArea.scrollTop;
+        
+        console.debug('Loading more messages...', { 
+            oldestMessageTimestamp,
+            scrollHeight,
+            currentScrollTop 
+        });
         
         try {
             const response = await fetch(`/api/chat/messages?${new URLSearchParams({
@@ -314,31 +325,50 @@ async function handleScroll(event: Event) {
                     if (data.messages.length === 0) {
                         hasMoreMessages = false;
                     } else {
-                        // Preserve scroll position
-                        const oldHeight = chatArea.scrollHeight;
+                        // Update messages through chat state
+                        chatState.prependMessages(data.messages, data.hasMore);
                         
-                        // Update messages
-                        chatState.prependMessages(data.messages);
-                        
-                        // After the DOM updates, adjust scroll position
-                        setTimeout(() => {
-                            const newHeight = chatArea.scrollHeight;
-                            chatArea.scrollTop = newHeight - oldHeight;
-                        }, 0);
+                        // Use requestAnimationFrame to ensure DOM has updated
+                        requestAnimationFrame(() => {
+                            // Calculate how much the content height has increased
+                            const newScrollHeight = chatArea.scrollHeight;
+                            const heightDifference = newScrollHeight - scrollHeight;
+                            
+                            // Adjust scroll position to maintain relative position
+                            chatArea.scrollTop = currentScrollTop + heightDifference;
+                            
+                            console.debug('Scroll position adjusted:', {
+                                heightDifference,
+                                newScrollTop: chatArea.scrollTop,
+                                newScrollHeight
+                            });
+                        });
                         
                         // Update oldest timestamp
                         const newOldest = Math.min(...data.messages.map((m: Message) => m.timestamp));
                         oldestMessageTimestamp = newOldest;
+                        
+                        // Update hasMoreMessages from response
+                        hasMoreMessages = data.hasMore;
                     }
                 }
             }
         } catch (error) {
             console.error('Error loading more messages:', error);
+            hasMoreMessages = false;
         } finally {
             isLoadingMore = false;
         }
     }
 }
+
+// Add effect to track initial loading state
+$effect(() => {
+    const stateMessages = chatState.getMessages();
+    if (stateMessages.length > 0 && isInitialLoading) {
+        isInitialLoading = false;
+    }
+});
 </script>
 
 {#if showChatRoom}
@@ -415,10 +445,14 @@ async function handleScroll(event: Event) {
         style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
         onscroll={(e) => handleScroll(e)}
       >
-        {#if isLoadingMore}
-            <div class="loading-messages">
-                Loading more messages...
-            </div>
+        {#if isInitialLoading}
+          <div class="initial-loading">
+            <LoadingDots text="Chargement des messages" />
+          </div>
+        {:else if isLoadingMore}
+          <div class="loading-messages">
+            <LoadingDots text="Chargement" />
+          </div>
         {/if}
         {#each visibleMessages as message (message.id)}
           <div class="message {message.type} text">
@@ -758,6 +792,15 @@ async function handleScroll(event: Event) {
     height: 2px;
     background: #e65100;
     transition: width 0.1s linear;
+  }
+
+  .initial-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    font-size: 1.1rem;
+    color: #666;
   }
 
   .loading-messages {

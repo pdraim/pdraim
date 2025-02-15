@@ -63,6 +63,7 @@ export type SendMessageResponse = SendMessageResponseSuccess | SendMessageRespon
 export interface GetMessagesResponseSuccess {
     success: true;
     messages: Message[];
+    hasMore: boolean;
 }
 
 export interface GetMessagesResponseError {

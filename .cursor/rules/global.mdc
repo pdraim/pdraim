@@ -1,0 +1,7 @@
+---
+description: 
+globs: 
+---
+# Debugging
+- Always add console.debug for client sided code 
+- Always add either console.log or follow the logger implementation logic is there is one for server/backend code

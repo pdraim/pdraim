@@ -55,9 +55,16 @@ export async function GET({ request, locals }) {
     const url = new URL(request.url);
     const beforeTimestamp = url.searchParams.get('before');
     const roomId = url.searchParams.get('roomId') || DEFAULT_CHAT_ROOM_ID;
+    const isPublic = url.searchParams.get('public') === 'true';
 
     try {
-        log.debug('Fetching messages from database', { beforeTimestamp, roomId, isAuthenticated: !!locals.session });
+        log.debug('Fetching messages from database', { 
+            beforeTimestamp, 
+            roomId, 
+            isAuthenticated: !!locals.session,
+            isPublic
+        });
+
         let conditions = eq(messages.chatRoomId, roomId) as SQL<unknown>;
         
         if (beforeTimestamp) {
@@ -68,7 +75,10 @@ export async function GET({ request, locals }) {
         }
 
         // Fetch messages with a limit based on authentication status
-        const fetchLimit = locals.session ? 100 : 10;
+        // Public requests are always limited to 10 messages
+        // Authenticated users get 100 messages per request
+        const fetchLimit = (isPublic || !locals.session) ? 10 : 100;
+
         const fetchedMessages = await db.select()
             .from(messages)
             .where(conditions)
@@ -77,7 +87,8 @@ export async function GET({ request, locals }) {
 
         const response: GetMessagesResponse = {
             success: true,
-            messages: fetchedMessages
+            messages: fetchedMessages,
+            hasMore: fetchedMessages.length === fetchLimit // Indicate if there might be more messages
         };
 
         return new Response(JSON.stringify(response), {

@@ -7,7 +7,8 @@ import type {
 import { invalidate } from '$app/navigation';
 import { env } from '$env/dynamic/public';
 
-const DEFAULT_CHAT_ROOM_ID = env.PUBLIC_DEFAULT_CHAT_ROOM_ID;
+// Use the public environment variable with a fallback
+const DEFAULT_CHAT_ROOM_ID = env.PUBLIC_DEFAULT_CHAT_ROOM_ID || '00000000-0000-0000-0000-000000000001';
 
 class ChatState {
     private users = $state<User[]>([]);
@@ -18,7 +19,7 @@ class ChatState {
     private maxReconnectAttempts = 5;
     private reconnectDelay = 1000; // Start with 1 second
     private isInitializing = $state(false);
-    private currentRoomId = $state<string>();
+    private currentRoomId = $state<string>(DEFAULT_CHAT_ROOM_ID);
     private userCache = $state<Record<string, User>>({});
     private sseError = $state<string | null>(null);
     private sseRetryAfter = $state<number | null>(null);
@@ -33,6 +34,7 @@ class ChatState {
     private sseHandlersRegistered = false;
     private lastBuddyListUpdate = 0;
     private lastBuddyListHash = '';
+    private hasMoreMessages = $state(false);
 
     public async reinitialize() {
         if (this.isInitializing) {
@@ -48,6 +50,9 @@ class ChatState {
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
         this.messages = [];
+        // Ensure currentRoomId is set
+        this.currentRoomId = DEFAULT_CHAT_ROOM_ID;
+        
         if (this.currentUser) {
             console.debug('Waiting for session cookie update before setting up SSE...');
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -102,6 +107,8 @@ class ChatState {
                 }
             }
             
+            // Clear existing messages before setting new user
+            this.messages = [];
             this.currentUser = user;
             
             if (user) {
@@ -128,7 +135,11 @@ class ChatState {
     private async initializeRoomUsers() {
         console.debug('Initializing room users for room:', this.currentRoomId);
         try {
-            const response = await fetch(`/api/rooms/${this.currentRoomId}`, {
+            const isPublic = !this.currentUser;
+            const url = `/api/rooms/${this.currentRoomId}${isPublic ? '?public=true' : ''}`;
+            console.debug('Fetching room users from:', url);
+            
+            const response = await fetch(url, {
                 credentials: 'include'
             });
             
@@ -305,7 +316,7 @@ class ChatState {
         return this._memoizedEnrichedMessages;
     }
 
-    public prependMessages(newMessages: Message[]) {
+    public prependMessages(newMessages: Message[], hasMore?: boolean) {
         console.debug('Prepending messages:', { count: newMessages.length });
         // Get unique user IDs from new messages that aren't in the cache
         const uniqueUserIds = new Set(newMessages.map(msg => msg.senderId));
@@ -335,9 +346,15 @@ class ChatState {
             }));
         }
 
-        // Prepend new messages while maintaining uniqueness
-        const uniqueNewMessages = newMessages.filter(msg => !this.messages.some(m => m.id === msg.id));
+        // Ensure incoming messages are sorted in ascending order before prepending
+        const sortedNewMessages = newMessages.slice().sort((a, b) => a.timestamp - b.timestamp);
+        const uniqueNewMessages = sortedNewMessages.filter(msg => !this.messages.some(m => m.id === msg.id));
         this.messages = [...uniqueNewMessages, ...this.messages];
+        
+        // Update hasMore if provided
+        if (hasMore !== undefined) {
+            this.hasMoreMessages = hasMore;
+        }
     }
 
     // Add method to update user cache for public access
@@ -395,13 +412,21 @@ class ChatState {
     updateMessages(messages: Message[]) {
         // Deduplicate the messages by their id in case duplicates exist
         const uniqueMessages = Array.from(new Map(messages.map(msg => [msg.id, msg])).values());
-        this.messages = uniqueMessages;
+        // Sort messages in ascending order (oldest first, newest at bottom)
+        this.messages = uniqueMessages.sort((a, b) => a.timestamp - b.timestamp);
     }
 
     // Note: For authenticated users, we no longer use the message cache. Messages are fetched directly from the database, and real-time updates are handled via SSE.
     async initializeMessages() {
         try {
-            const response = await fetch('/api/chat/messages', {
+            // Build the URL with appropriate parameters
+            const params = new URLSearchParams();
+            if (!this.currentUser) {
+                params.append('public', 'true');
+            }
+            params.append('roomId', this.currentRoomId);
+
+            const response = await fetch(`/api/chat/messages?${params}`, {
                 credentials: 'include'
             });
             if (!response.ok) throw new Error('Failed to fetch messages');
@@ -439,10 +464,23 @@ class ChatState {
                 }));
             }
 
-            this.messages = data.messages;
+            // Sort messages in ascending order (oldest first, most recent at the bottom)
+            this.messages = data.messages.slice().sort((a, b) => a.timestamp - b.timestamp);
+            
+            // Update hasMore based on response
+            if ('hasMore' in data) {
+                this.hasMoreMessages = data.hasMore;
+            }
+
+            console.debug('Messages initialized:', {
+                count: data.messages.length,
+                isAuthenticated: !!this.currentUser,
+                hasMore: this.hasMoreMessages
+            });
         } catch (error) {
             console.debug('Error fetching initial messages:', error);
             this.messages = [];
+            this.hasMoreMessages = false;
         }
     }
 
@@ -592,6 +630,8 @@ class ChatState {
                 console.debug('Received chat message via SSE:', messageData);
                 // Deduplicate and update messages array with the new message
                 this.messages = Array.from(new Map([...this.messages, messageData].map(m => [m.id, m])).values());
+                // Sort messages so the newest are at the bottom
+                this.messages.sort((a, b) => a.timestamp - b.timestamp);
                 // Ensure the sender's data is available
                 await this.ensureUserData(messageData.senderId);
             } catch (error) {
