@@ -3,33 +3,90 @@ import type { RegisterResponseSuccess, RegisterResponseError } from '$lib/types/
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { hashPassword } from '$lib/utils/password';
+import { validateTurnstileToken } from '$lib/utils/turnstile.server';
+import { createLogger } from '$lib/utils/logger.server';
+
+const log = createLogger('register-server');
 
 // In-memory map to track failed captcha attempts per IP
 const captchaAttempts = new Map<string, { count: number, lastAttempt: number }>();
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Cleanup old entries every hour
+setInterval(() => {
+	const now = Date.now();
+	const ONE_HOUR = 60 * 60 * 1000;
+	for (const [ip, data] of captchaAttempts.entries()) {
+		if (now - data.lastAttempt > ONE_HOUR) {
+			captchaAttempts.delete(ip);
+		}
+	}
+}, 60 * 60 * 1000);
 
 export const POST: RequestHandler = async ({ request }) => {
-	console.log("[Register] New registration attempt received");
+	log.debug('New registration attempt received');
 
-	// Only allow POST
 	if (request.method !== 'POST') {
+		log.warn('Invalid method used', { method: request.method });
 		return new Response(JSON.stringify({ error: 'Method Not Allowed' } as RegisterResponseError), { status: 405 });
 	}
+
+	// Get the IP address for rate limiting and Turnstile validation
+	const ip = request.headers.get('x-forwarded-for') || 'unknown';
+	const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
+	const now = Date.now();
+	const attemptData = captchaAttempts.get(ip) || { count: 0, lastAttempt: 0 };
 
 	let body: unknown;
 	try {
 		body = await request.json();
 	} catch {
-		console.log("[Register] Invalid JSON payload received");
+		log.warn('Invalid JSON payload received');
 		return new Response(JSON.stringify({ error: 'Invalid JSON' } as RegisterResponseError), { status: 400 });
 	}
 
-	const { suUsername, suPassword, suConfirmPassword, captchaAnswer } = body as { suUsername: string, suPassword: string, suConfirmPassword: string, captchaAnswer: string };
+	const { suUsername, suPassword, suConfirmPassword, captchaAnswer, turnstileToken } = body as { 
+		suUsername: string, 
+		suPassword: string, 
+		suConfirmPassword: string, 
+		captchaAnswer: string,
+		turnstileToken: string 
+	};
+
+	if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || !turnstileToken) {
+		log.warn('Missing required fields', { 
+			hasUsername: Boolean(suUsername),
+			hasPassword: Boolean(suPassword),
+			hasConfirmPassword: Boolean(suConfirmPassword),
+			hasCaptcha: Boolean(captchaAnswer),
+			hasTurnstileToken: Boolean(turnstileToken)
+		});
+		return new Response(JSON.stringify({ error: 'All fields are required' } as RegisterResponseError), { status: 400 });
+	}
+
+	// Validate Turnstile token
+	const isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+	if (!isValidTurnstile) {
+		log.warn('Invalid Turnstile token', { maskedIp });
+		return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as RegisterResponseError), { status: 400 });
+	}
+
+	// Validate PDR captcha
+	const normalizedAnswer = captchaAnswer.trim().toLowerCase();
+	if (normalizedAnswer !== 'poudlard' && normalizedAnswer !== 'poudlard rp') {
+		attemptData.count++;
+		attemptData.lastAttempt = now;
+		captchaAttempts.set(ip, attemptData);
+		log.warn('Invalid captcha answer', { maskedIp, attemptCount: attemptData.count });
+		return new Response(JSON.stringify({ error: 'Invalid answer to the PDR question' } as RegisterResponseError), { status: 400 });
+	}
+
+	// Reset captcha attempts on success
+	captchaAttempts.delete(ip);
 
 	// Destructure and validate required fields from the payload.
 	if (typeof suUsername !== 'string' || typeof suPassword !== 'string' ||
-	    typeof suConfirmPassword !== 'string' || typeof captchaAnswer !== 'string') {
-		console.log("[Register] Missing or invalid input fields");
+	    typeof suConfirmPassword !== 'string') {
+		log.warn('Missing or invalid input fields');
 		return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as RegisterResponseError), { status: 400 });
 	}
 
@@ -37,55 +94,32 @@ export const POST: RequestHandler = async ({ request }) => {
 	const username = suUsername.trim();
 	const password = suPassword.trim();
 	const confirmPassword = suConfirmPassword.trim();
-	const captcha = captchaAnswer.trim().toLowerCase();
 
 	// Basic validations.
-	if (!username || !password || !confirmPassword || !captcha) {
+	if (!username || !password || !confirmPassword) {
+		log.warn('All fields must be filled');
 		return new Response(JSON.stringify({ error: 'All fields must be filled' } as RegisterResponseError), { status: 400 });
 	}
 
 	if (username.length > 32) {
+		log.warn('Username must be at most 32 characters');
 		return new Response(JSON.stringify({ error: 'Username must be at most 32 characters' } as RegisterResponseError), { status: 400 });
 	}
 	// Only allow letters, numbers, underscores, and dashes in the username.
 	const usernameRegex = /^[a-zA-Z0-9_-]+$/;
 	if (!usernameRegex.test(username)) {
+		log.warn('Invalid username. Only letters, numbers, underscores, and dashes are allowed.');
 		return new Response(JSON.stringify({ error: 'Invalid username. Only letters, numbers, underscores, and dashes are allowed.' } as RegisterResponseError), { status: 400 });
 	}
 
 	if (password !== confirmPassword) {
+		log.warn('Passwords do not match');
 		return new Response(JSON.stringify({ error: 'Passwords do not match' } as RegisterResponseError), { status: 400 });
 	}
 
 	if (password.length < 8 || password.length > 64) {
+		log.warn('Password must be between 8 and 64 characters');
 		return new Response(JSON.stringify({ error: 'Password must be between 8 and 64 characters' } as RegisterResponseError), { status: 400 });
-	}
-
-	// Captcha validation logic.
-	// Expected captcha answer.
-	const expectedCaptcha = "point de rencontre";
-	// Get the IP address for rate limiting. In production, a more reliable method should be used.
-	const ip = request.headers.get('x-forwarded-for') || 'unknown';
-	const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
-	const now = Date.now();
-	const attemptData = captchaAttempts.get(ip) || { count: 0, lastAttempt: 0 };
-	// If the user has failed three or more times, apply aggressive exponential backoff.
-	if (attemptData.count >= 3) {
-		const delay = Math.pow(2, attemptData.count - 3 + 1) * 1000; // delay in milliseconds
-		console.log(`[Register] Rate limit exceeded for IP ${maskedIp} - applying ${delay}ms delay`);
-		await sleep(delay);
-	}
-	if (captcha !== expectedCaptcha) {
-		attemptData.count++;
-		attemptData.lastAttempt = now;
-		captchaAttempts.set(ip, attemptData);
-		console.log(`[Register] Captcha failed for IP ${maskedIp}. Attempt count: ${attemptData.count}`);
-		const remaining = Math.max(0, 3 - attemptData.count);
-		return new Response(JSON.stringify({ error: `Incorrect captcha answer. ${remaining > 0 ? remaining + " attempt(s) remaining." : "Please wait before trying again."}` } as RegisterResponseError), { status: 400 });
-	}
-	// Reset captcha attempt data on success.
-	if (captcha === expectedCaptcha) {
-		captchaAttempts.delete(ip);
 	}
 
 	// Securely hash the user's password.
@@ -93,19 +127,19 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		hashedPassword = await hashPassword(password);
 	} catch {
-		console.log("[Register] Error hashing password");
+		log.error('Error hashing password');
 		return new Response(JSON.stringify({ error: 'Internal Server Error' } as RegisterResponseError), { status: 500 });
 	}
 	// Insert the new user into the database.
 	try {
 		await db.insert(users).values({
-			password: hashedPassword,
 			nickname: username,
+			password: hashedPassword,
 			createdAt: Date.now()
 		});
-		console.log(`[Register] User ${username} registered successfully`);
-	} catch (err) {
-		console.log("Database insertion error", err);
+		log.info(`User ${username} registered successfully`);
+	} catch (err: unknown) {
+		log.error('Database insertion error', { error: err as object });
 		// Assume a duplicate user error if the email (or derived unique field) already exists.
 		return new Response(JSON.stringify({ error: 'User registration failed. Possibly user already exists.' } as RegisterResponseError), { status: 409 });
 	}

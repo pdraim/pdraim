@@ -5,6 +5,7 @@
     import type { User } from '$lib/types/chat';
     import { invalidateAll } from '$app/navigation';
     import { chatState } from '$lib/states/chat.svelte';
+    import Turnstile from './turnstile.svelte';
     
     let { onLoginSuccess, showAuth = $bindable() }: { onLoginSuccess?: (user: User) => void, showAuth:Boolean } = $props();
     
@@ -15,6 +16,7 @@
     let siPassword = $state('');
     let error = $state('');
     let loginStatus = $state('idle');
+    let siTurnstileToken = $state('');
   
     // Sign Up state
     let suUsername = $state('');
@@ -23,6 +25,7 @@
     let captchaAnswer = $state('');
     let signupError = $state('');
     let signupStatus = $state('idle');
+    let suTurnstileToken = $state('');
 
     function handleClose() {
         console.debug("Closing AIM Login component.");
@@ -32,8 +35,8 @@
     async function handleSigninSubmit() {
         error = '';
         loginStatus = 'loading';
-        if (!siUsername || !siPassword) {
-            error = 'Please enter both username and password';
+        if (!siUsername || !siPassword || !siTurnstileToken) {
+            error = 'Please complete all fields including the security check';
             loginStatus = 'error';
             return;
         }
@@ -45,7 +48,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     username: siUsername, 
-                    password: siPassword 
+                    password: siPassword,
+                    turnstileToken: siTurnstileToken
                 })
             });
 
@@ -81,8 +85,8 @@
     async function handleSignupSubmit() {
         signupError = '';
         signupStatus = 'loading';
-        if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer) {
-            signupError = 'Please fill all fields';
+        if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || !suTurnstileToken) {
+            signupError = 'Please complete all fields including the security check';
             signupStatus = 'error';
             return;
         }
@@ -97,7 +101,13 @@
             const res = await fetch('/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ suUsername, suPassword, suConfirmPassword, captchaAnswer })
+                body: JSON.stringify({ 
+                    suUsername, 
+                    suPassword, 
+                    suConfirmPassword, 
+                    captchaAnswer,
+                    turnstileToken: suTurnstileToken
+                })
             });
 
             const data = await res.json() as RegisterResponse;
@@ -202,6 +212,7 @@
                     <label for="si-password">Mot de passe</label>
                     <input type="password" id="si-password" bind:value={siPassword} placeholder="Mot de passe" />
                 </div>
+                <Turnstile onVerify={(token: string) => siTurnstileToken = token} />
                 {#if error}
                     <div class="error">{error}</div>
                 {/if}
@@ -251,6 +262,7 @@
                     <label for="captcha">Quelle est la signification de PDR ?</label>
                     <input type="text" id="captcha" bind:value={captchaAnswer} placeholder="Entrez votre réponse" />
                 </div>
+                <Turnstile onVerify={(token: string) => suTurnstileToken = token} />
                 {#if signupError}
                     <div class="error">{signupError}</div>
                 {/if}

@@ -8,6 +8,7 @@ import { generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
 import { createSafeUser } from '$lib/types/chat';
 import { createLogger } from '$lib/utils/logger.server';
+import { validateTurnstileToken } from '$lib/utils/turnstile.server';
 
 const log = createLogger('login-server');
 
@@ -35,7 +36,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         return new Response(JSON.stringify({ error: 'Method Not Allowed' } as LoginResponseError), { status: 405 });
     }
 
-    // Get the IP address for rate limiting
+    // Get the IP address for rate limiting and Turnstile validation
     const ip = request.headers.get('x-forwarded-for') || 'unknown';
     const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
     const now = Date.now();
@@ -56,14 +57,22 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         return new Response(JSON.stringify({ error: 'Invalid JSON' } as LoginResponseError), { status: 400 });
     }
 
-    const { username, password } = body as { username: string, password: string };
+    const { username, password, turnstileToken } = body as { username: string, password: string, turnstileToken: string };
 
-    if (typeof username !== 'string' || typeof password !== 'string') {
+    if (typeof username !== 'string' || typeof password !== 'string' || typeof turnstileToken !== 'string') {
         log.warn('Missing or invalid input fields', { 
             hasUsername: typeof username === 'string',
-            hasPassword: typeof password === 'string'
+            hasPassword: typeof password === 'string',
+            hasTurnstileToken: typeof turnstileToken === 'string'
         });
         return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError), { status: 400 });
+    }
+
+    // Validate Turnstile token
+    const isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+    if (!isValidTurnstile) {
+        log.warn('Invalid Turnstile token', { maskedIp });
+        return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as LoginResponseError), { status: 400 });
     }
 
     // Find user by username
