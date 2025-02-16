@@ -1,6 +1,6 @@
 <!-- A reusable loading dots component with animated dots -->
 <script lang="ts">
-    let { text = 'Loading', color = 'inherit' } = $props();
+    let { text = 'Chargement', color = 'inherit' } = $props();
 </script>
 
 <div class="loading-text" style="color: {color}">

@@ -369,6 +369,9 @@ $effect(() => {
         isInitialLoading = false;
     }
 });
+
+// Add derived state for total users count
+let totalUsers = $derived(onlineUsers.length);
 </script>
 
 {#if showChatRoom}
@@ -393,9 +396,9 @@ $effect(() => {
 >
   <div class="title-bar">
     <div class="title-bar-text">
-      Pdr Aim - {currentUser?.nickname}
+      Pdr Aim {#if currentUser} - {currentUser.nickname}{:else} - {totalUsers} personne{totalUsers > 1 ? 's' : ''} présente{totalUsers > 1 ? 's' : ''}{/if}
       {#if sseError}
-        <span class="connection-error">⚠️ Connection Error</span>
+        <span class="connection-error">⚠️ Erreur de connexion</span>
       {/if}
     </div>
     <div class="title-bar-controls">
@@ -409,7 +412,7 @@ $effect(() => {
         <button onclick={handleClose} aria-label="Close"></button>
       {:else}
         <button 
-          aria-label="Toggle Buddy List"
+          aria-label="Afficher/Masquer la liste des contacts"
           onclick={() => showUserList = !showUserList}
         >👥</button>
       {/if}
@@ -417,25 +420,22 @@ $effect(() => {
   </div>
 
   <div class="window-body" style="display: flex; height: calc(100% - 2rem); margin: 0; padding: 0.5rem;">
-    <!-- Add error message display -->
     {#if sseError}
       <div class="error-banner">
         {sseError}
         {#if sseRetryAfter}
           <br>
-          <small>Retrying in {Math.ceil(sseRetryAfter)}s...</small>
+          <small>Nouvelle tentative dans {Math.ceil(sseRetryAfter)}s...</small>
         {/if}
       </div>
     {/if}
     
-    <!-- Chat content area -->
     <div class="chat-container" style="flex: 1; display: flex; flex-direction: column; margin-right: 0.5rem;">
-      <!-- Add rate limit warning -->
       {#if rateLimitWarning}
         <div class="rate-limit-warning" class:with-progress={cooldownEndTime}>
           <span>{rateLimitWarning}</span>
           {#if cooldownEndTime}
-            <small>You can send another message in {cooldownProgress.toFixed(1)}s</small>
+            <small>Vous pourrez envoyer un autre message dans {cooldownProgress.toFixed(1)}s</small>
           {/if}
         </div>
       {/if}
@@ -479,14 +479,14 @@ $effect(() => {
           bind:value={currentMessage}
           style="flex: 1;"
           onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder={cooldownEndTime ? `Wait ${cooldownProgress.toFixed(1)}s...` : "Type a message..."}
+          placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
           disabled={!currentUser || Boolean(cooldownEndTime)}
         />
         <LoadingButton 
           onclick={handleSubmit} 
           disabled={!currentUser || Boolean(cooldownEndTime)} 
           loading={isSendingMessage}
-          text={cooldownEndTime ? `${cooldownProgress.toFixed(1)}s` : "Send"}
+          text={cooldownEndTime ? `${cooldownProgress.toFixed(1)}s` : "Envoyer"}
         />
       </div>
       {#if cooldownEndTime}
@@ -501,7 +501,7 @@ $effect(() => {
       class:hidden={isMobile && !showUserList}
       style="width: {isMobile ? '100%' : '9.375rem'}; padding: 0.5rem; overflow-y: auto;"
     >
-      <p style="margin: 0 0 0.3rem 0;"><strong>Buddy List</strong></p>
+      <p style="margin: 0 0 0.3rem 0;"><strong>Liste d'amis</strong></p>
       {#each onlineUsers as user}
         <div class="user" class:offline={user.status === 'offline'}>
           <span class="status-icon">{getStatusIcon(user.status)}</span>
@@ -513,11 +513,6 @@ $effect(() => {
             {:else}
               <div class="nickname select-none">{user.nickname}</div>
             {/if}
-            {#if user.status === 'away'}
-              <div class="status-message">Away</div>
-            {:else if user.status === 'busy'}
-              <div class="status-message">Busy</div>
-            {/if}
           </div>
         </div>
       {/each}
@@ -527,7 +522,6 @@ $effect(() => {
 {/if}
 
 <style>
-
   .chat-area, .users-list, input {
     font-size: 1rem;
     font-family: Arial, Verdana, Tahoma, sans-serif;
@@ -608,14 +602,14 @@ $effect(() => {
     color: #666;
   }
 
-  .user .status-message {
+  /* .user .status-message {
     font-size: 0.875rem;
     color: #666;
     font-style: italic;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
+  } */
 
   .sunken-panel {
     background: white;

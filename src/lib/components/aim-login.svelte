@@ -179,7 +179,7 @@
     <div class="title-bar">
         <div class="title-bar-text">
             <img src="/desktop/aim-desktop-icon.png" alt="AIM" class="title-icon" width="16" height="16" />
-            {activeTab === 'signin' ? 'Sign In' : 'Sign Up'}
+            {activeTab === 'signin' ? 'Connexion' : 'Inscription'}
         </div>
         <div class="title-bar-controls">
             <button aria-label="Close" onclick={handleClose}>×</button>
@@ -187,20 +187,20 @@
     </div>
 
     <div class="tabs">
-        <button class:active={activeTab === 'signin'} onclick={() => switchTab('signin')}>Sign In</button>
-        <button class:active={activeTab === 'signup'} onclick={() => switchTab('signup')}>Sign Up</button>
+        <button class:active={activeTab === 'signin'} onclick={() => switchTab('signin')}>Connexion</button>
+        <button class:active={activeTab === 'signup'} onclick={() => switchTab('signup')}>Inscription</button>
     </div>
 
     <div class="window-content">
          {#if activeTab === 'signin'}
             <form onsubmit={handleSigninSubmit}>
                 <div class="form-group">
-                    <label for="si-username">Username</label>
-                    <input type="text" id="si-username" bind:value={siUsername} placeholder="Username" />
+                    <label for="si-username">Nom d'utilisateur</label>
+                    <input type="text" id="si-username" bind:value={siUsername} placeholder="Nom d'utilisateur" />
                 </div>
                 <div class="form-group">
-                    <label for="si-password">Password</label>
-                    <input type="password" id="si-password" bind:value={siPassword} placeholder="Password" />
+                    <label for="si-password">Mot de passe</label>
+                    <input type="password" id="si-password" bind:value={siPassword} placeholder="Mot de passe" />
                 </div>
                 {#if error}
                     <div class="error">{error}</div>
@@ -229,27 +229,27 @@
                                 <path d="M12 4C9.24 4 7 6.24 7 9c0 2.76 2.24 5 5 5s5-2.24 5-5c0-2.76-2.24-5-5-5zm0 2c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 10c-3.33 0-7 1.67-7 5v1h14v-1c0-3.33-3.67-5-7-5zm0 2c2.67 0 5 1.33 5 3H7c0-1.67 2.33-3 5-3z" fill="currentColor"/>
                             </svg>
                         {/if}
-                        Sign In
+                        Se connecter
                     </button>
                 </div>
             </form>
          {:else}
             <form onsubmit={handleSignupSubmit}>
                 <div class="form-group">
-                    <label for="su-username">Username</label>
-                    <input type="text" id="su-username" bind:value={suUsername} placeholder="Choose a username" />
+                    <label for="su-username">Nom d'utilisateur</label>
+                    <input type="text" id="su-username" bind:value={suUsername} placeholder="Choisissez un nom d'utilisateur" />
                 </div>
                 <div class="form-group">
-                    <label for="su-password">Password</label>
-                    <input type="password" id="su-password" bind:value={suPassword} placeholder="Password" />
+                    <label for="su-password">Mot de passe</label>
+                    <input type="password" id="su-password" bind:value={suPassword} placeholder="Mot de passe" />
                 </div>
                 <div class="form-group">
-                    <label for="su-confirm-password">Confirm Password</label>
-                    <input type="password" id="su-confirm-password" bind:value={suConfirmPassword} placeholder="Confirm Password" />
+                    <label for="su-confirm-password">Confirmer le mot de passe</label>
+                    <input type="password" id="su-confirm-password" bind:value={suConfirmPassword} placeholder="Confirmer le mot de passe" />
                 </div>
                 <div class="form-group">
-                    <label for="captcha">What's the meaning of PDR?</label>
-                    <input type="text" id="captcha" bind:value={captchaAnswer} placeholder="Enter your answer" />
+                    <label for="captcha">Quelle est la signification de PDR ?</label>
+                    <input type="text" id="captcha" bind:value={captchaAnswer} placeholder="Entrez votre réponse" />
                 </div>
                 {#if signupError}
                     <div class="error">{signupError}</div>
@@ -278,7 +278,7 @@
                                 <path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"></path>
                             </svg>
                         {/if}
-                        Sign Up
+                        S'inscrire
                     </button>
                 </div>
             </form>

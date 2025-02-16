@@ -25,7 +25,7 @@
         role="button" 
         tabindex="0"
     >
-        <img src="/desktop/aim-desktop-icon.png" alt="Chat Room" />
+        <img src="/desktop/aim-desktop-icon.png" alt="Salon de discussion" />
         <span class="icon-label">Pdr Aim</span>
     </div>
     
@@ -36,8 +36,8 @@
         role="button" 
         tabindex="0"
     >
-        <img src="/desktop/application-x-shellscript.png" alt="Sign In" />
-        <span class="icon-label">login</span>
+        <img src="/desktop/application-x-shellscript.png" alt="Connexion" />
+        <span class="icon-label">Connexion</span>
     </div>
 </div>
 

@@ -2,10 +2,10 @@
   import { onDestroy } from 'svelte';
 
   // Props with defaults:
-  // - text: button label when not loading (default "Send")
+  // - text: button label when not loading (default "Envoyer")
   // - loading: indicates if the button should show a spinner (default false)
   // - spinnerChar: the character to use for the spinner animation (default '.')
-  let { onclick, disabled = $bindable(false), text, loading = $bindable(false), spinnerChar = $bindable('.') } = $props();
+  let { onclick, disabled = $bindable(false), text = 'Envoyer', loading = $bindable(false), spinnerChar = $bindable('.') } = $props();
 
   // Using $state for internal reactive variables.
   let animatedDots = $state(''); // will hold the animated spinner text
