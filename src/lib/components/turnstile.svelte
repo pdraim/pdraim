@@ -96,7 +96,7 @@
         class="turnstile-wrapper" 
         transition:fade={{ duration: 300 }}
     >
-        <div bind:this={turnstileElement} class="cf-turnstile" data-theme="light"></div>
+        <div bind:this={turnstileElement} class="turnstile-container" data-theme="light"></div>
     </div>
 {/if}
 
@@ -110,7 +110,7 @@
         overflow: hidden;
     }
 
-    .cf-turnstile {
+    .turnstile-container {
         display: flex;
         justify-content: center;
         align-items: center;
