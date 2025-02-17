@@ -405,7 +405,7 @@ function openSignup() {
 >
   <div class="title-bar">
     <div class="title-bar-text">
-      Pdr Aim {#if currentUser} - {currentUser.nickname}{:else} - {totalUsers} personne{totalUsers > 1 ? 's' : ''} présente{totalUsers > 1 ? 's' : ''}{/if}
+      Pdr Aim {#if currentUser} - {currentUser.nickname}{:else} - {totalUsers} membre{totalUsers > 1 ? 's' : ''}{/if}
       {#if sseError}
         <span class="connection-error">⚠️ Erreur de connexion</span>
       {/if}
@@ -515,7 +515,7 @@ function openSignup() {
       class:hidden={isMobile && !showUserList}
       style="width: {isMobile ? '100%' : '9.375rem'}; padding: 0.5rem; overflow-y: auto;"
     >
-      <p style="margin: 0 0 0.3rem 0;"><strong>Liste d'amis</strong></p>
+      <p style="margin: 0 0 0.3rem 0;"><strong>{totalUsers} membre{totalUsers > 1 ? 's' : ''}</strong></p>
       {#each onlineUsers as user}
         <div class="user" class:offline={user.status === 'offline'}>
           <span class="status-icon">{getStatusIcon(user.status)}</span>
