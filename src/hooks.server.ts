@@ -12,9 +12,8 @@ const log = createLogger('hooks-server');
 // Set all users to offline on server start
 async function setAllUsersOffline() {
     try {
-        const now = Date.now();
         await db.update(users)
-            .set({ status: 'offline', lastSeen: now });
+            .set({ status: 'offline'});
         log.info('All users set to offline on server start');
     } catch (error: unknown) {
         log.error('Failed to set users offline on server start:', { error });
