@@ -4,7 +4,7 @@ globs:
 ---
 # Debugging
 - Always add console.debug for client sided code.
-- Always add either console.log or follow the logger implementation if any server/backend code.
+- Always add either console.log or follow the logger implementation if any for server/backend code.
 
 # Language
 - The content of the app is in French but the code comments must be in English.

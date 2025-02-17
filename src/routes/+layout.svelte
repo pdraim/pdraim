@@ -222,6 +222,35 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{data.meta.title}</title>
+	<meta name="description" content={data.meta.description} />
+	<meta name="keywords" content={data.meta.keywords} />
+	<meta name="language" content="French" />
+	<html lang="fr" />
+	
+	<!-- Open Graph / Facebook -->
+	<meta property="og:locale" content={data.meta.locale} />
+	<meta property="og:type" content={data.meta.type} />
+	<meta property="og:url" content={data.meta.url} />
+	<meta property="og:title" content={data.meta.title} />
+	<meta property="og:description" content={data.meta.description} />
+	<meta property="og:image" content={data.meta.ogImage} />
+	
+	<!-- Twitter -->
+	<meta property="twitter:card" content="summary_large_image" />
+	<meta property="twitter:url" content={data.meta.url} />
+	<meta property="twitter:title" content={data.meta.title} />
+	<meta property="twitter:description" content={data.meta.description} />
+	<meta property="twitter:image" content={data.meta.ogImage} />
+	
+	<!-- Additional Meta Tags -->
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="theme-color" content="#2195f2" />
+	<link rel="canonical" href={data.meta.url} />
+	<link rel="alternate" hreflang="fr" href={data.meta.url} />
+</svelte:head>
+
 <div class="windows-xp-bg">
 	{@render children()}
 </div>
