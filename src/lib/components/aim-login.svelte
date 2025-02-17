@@ -7,9 +7,17 @@
     import { chatState } from '$lib/states/chat.svelte';
     import Turnstile from './turnstile.svelte';
     
-    let { onLoginSuccess, showAuth = $bindable() }: { onLoginSuccess?: (user: User) => void, showAuth:Boolean } = $props();
+    let { 
+        onLoginSuccess, 
+        showAuth = $bindable(),
+        activeTab: initialTab = 'signin'
+    }: { 
+        onLoginSuccess?: (user: User) => void, 
+        showAuth: Boolean,
+        activeTab?: 'signin' | 'signup'
+    } = $props();
     
-    let activeTab = $state('signin');
+    let activeTab = $state(initialTab);
 
     // Sign In state
     let siUsername = $state('');

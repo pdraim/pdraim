@@ -9,6 +9,7 @@ import { maximizable } from '$lib/actions/maximizable';
 import LoadingButton from './ui/button-loading.svelte';
 import Tooltip from './ui/tooltip.svelte';
 import LoadingDots from './ui/loading-dots.svelte';
+import AimLogin from './aim-login.svelte';
 import { formatFrenchDateTime, formatFrenchRelativeTimeSafe } from '$lib/utils/date-format';
 
 // Initialize with default values for SSR
@@ -21,6 +22,7 @@ let currentMessage = $state('');
 let showUserList = $state(false);
 let isMaximized = $state(false);
 let isInitialLoading = $state(true);
+let showAuth = $state(false);
 
 // Rate limiting state
 let cooldownEndTime = $state<number | null>(null);
@@ -74,9 +76,12 @@ let visibleMessages = $derived((() => {
   const messageCount = messages.length;
   const result: EnrichedMessage[] = isLoggedIn 
     ? messages 
-    : messages.slice(Math.max(0, messageCount - 10));
+    : messages.slice(Math.max(0, messageCount - 50));
   return result;
 })());
+
+// Add a derived state to check if we're showing the registration prompt
+let showRegistrationPrompt = $derived(!currentUser && messages.length > 50);
 
 // Add SSE error state
 let sseError = $state<string | null>(null);
@@ -372,6 +377,10 @@ $effect(() => {
 
 // Add derived state for total users count
 let totalUsers = $derived(onlineUsers.length);
+
+function openSignup() {
+    showAuth = true;
+}
 </script>
 
 {#if showChatRoom}
@@ -454,6 +463,11 @@ let totalUsers = $derived(onlineUsers.length);
             <LoadingDots text="Chargement" />
           </div>
         {/if}
+        {#if showRegistrationPrompt}
+          <div class="registration-prompt">
+            <p>👋 <button class="link-button" onclick={openSignup}>Inscris-toi</button> pour lire le reste du chat !</p>
+          </div>
+        {/if}
         {#each visibleMessages as message (message.id)}
           <div class="message {message.type} text">
             {#if message.type === 'emote'}
@@ -519,6 +533,13 @@ let totalUsers = $derived(onlineUsers.length);
     </div>
   </div>
 </div>
+{/if}
+
+{#if showAuth}
+    <AimLogin 
+        bind:showAuth 
+        activeTab={'signup' as const} 
+    />
 {/if}
 
 <style>
@@ -805,5 +826,47 @@ let totalUsers = $derived(onlineUsers.length);
     background: rgba(0, 0, 0, 0.05);
     margin-bottom: 1rem;
     border-radius: 4px;
+  }
+
+  .registration-prompt {
+    background: #fff3e0;
+    color: #e65100;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 0.95rem;
+    border: 1px solid #ffe0b2;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .registration-prompt p {
+    margin: 0;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .registration-prompt .link-button {
+    color: #e65100;
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+  }
+
+  .registration-prompt .link-button:hover {
+    color: #ef6c00;
+    text-decoration: none;
   }
 </style>

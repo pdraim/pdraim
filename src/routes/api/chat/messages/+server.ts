@@ -75,9 +75,9 @@ export async function GET({ request, locals }) {
         }
 
         // Fetch messages with a limit based on authentication status
-        // Public requests are always limited to 10 messages
+        // Public requests are limited to 50 messages
         // Authenticated users get 100 messages per request
-        const fetchLimit = (isPublic || !locals.session) ? 10 : 100;
+        const fetchLimit = (isPublic || !locals.session) ? 50 : 100;
 
         const fetchedMessages = await db.select()
             .from(messages)

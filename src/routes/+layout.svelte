@@ -226,8 +226,7 @@
 	<title>{data.meta.title}</title>
 	<meta name="description" content={data.meta.description} />
 	<meta name="keywords" content={data.meta.keywords} />
-	<meta name="language" content="French" />
-	<html lang="fr" />
+	<meta name="language" content="fr" />
 	
 	<!-- Open Graph / Facebook -->
 	<meta property="og:locale" content={data.meta.locale} />
