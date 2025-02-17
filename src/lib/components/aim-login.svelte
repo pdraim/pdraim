@@ -2,20 +2,19 @@
 <script lang="ts">
     import { draggable } from '$lib/actions/draggable';
     import type { RegisterResponse, RegisterResponseError } from '$lib/types/payloads';
-    import type { User } from '$lib/types/chat';
+    import type { User, SafeUser } from '$lib/types/chat';
     import { invalidateAll } from '$app/navigation';
     import { chatState } from '$lib/states/chat.svelte';
     import Turnstile from './turnstile.svelte';
+    import { createSafeUser } from '$lib/types/chat';
     
-    let { 
-        onLoginSuccess, 
-        showAuth = $bindable(),
-        activeTab: initialTab = 'signin'
-    }: { 
-        onLoginSuccess?: (user: User) => void, 
-        showAuth: Boolean,
-        activeTab?: 'signin' | 'signup'
-    } = $props();
+    interface $$Props {
+        showAuth: boolean;
+        onLoginSuccess?: (user: SafeUser | null) => void;
+        activeTab?: 'signin' | 'signup';
+    }
+
+    let { showAuth, onLoginSuccess, activeTab: initialTab = 'signin' } = $props();
     
     let activeTab = $state(initialTab);
 
@@ -69,12 +68,12 @@
                 return;
             }
 
-            console.debug("Login succeeded:", data);
-            await chatState.setCurrentUser(data.user);
+            console.debug("Login succeeded:", { ...data, user: data.user ? { ...data.user, password: '[REDACTED]' } : null });
+            await chatState.setCurrentUser(data.user ? createSafeUser(data.user) : null);
             loginStatus = 'success';
             
             // Call the callback prop if provided
-            onLoginSuccess?.(data.user);
+            onLoginSuccess?.(data.user ? createSafeUser(data.user) : null);
             // Auto close login window after 3 seconds on successful login
             setTimeout(() => {
                 console.debug("Auto closing AIM Login component after successful login");
@@ -152,8 +151,8 @@
                 return;
             }
             console.debug("Auto login after registration succeeded:", data);
-            await chatState.setCurrentUser(data.user);
-            onLoginSuccess?.(data.user);
+            await chatState.setCurrentUser(data.user ? createSafeUser(data.user) : null);
+            onLoginSuccess?.(data.user ? createSafeUser(data.user) : null);
             setTimeout(() => {
                 console.debug("Auto closing AIM Login component after auto login on registration");
                 invalidateAll();

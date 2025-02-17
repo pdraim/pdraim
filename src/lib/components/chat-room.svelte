@@ -1,6 +1,6 @@
 <script lang="ts">
 import { chatState } from '../states/chat.svelte';
-import type { MessageType, User, ChatRoom, Message, EnrichedMessage } from '../types/chat';
+import type { MessageType, User, ChatRoom, Message, EnrichedMessage, SafeUser } from '../types/chat';
 import { onMount } from 'svelte';
 import { browser } from '$app/environment';
 import { draggable } from '$lib/actions/draggable';
@@ -63,8 +63,8 @@ function handleClose() {
 
 // Reactive state using derived values
 let messages = $state<EnrichedMessage[]>([]);
-let onlineUsers = $state<User[]>([]);
-let currentUser = $state<User | null>(null);
+let onlineUsers = $state<SafeUser[]>([]);
+let currentUser = $state<SafeUser | null>(null);
 let isLoadingMore = $state(false);
 let hasMoreMessages = $state(true);
 let oldestMessageTimestamp = $state<number | null>(null);

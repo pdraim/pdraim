@@ -1,4 +1,5 @@
-import type { User, Message, EnrichedMessage } from '../types/chat';
+import type { User, Message, EnrichedMessage, SafeUser } from '../types/chat';
+import { createSafeUser } from '../types/chat';
 import type { 
     SendMessageRequest, 
     SendMessageResponse, 
@@ -11,16 +12,16 @@ import { env } from '$env/dynamic/public';
 const DEFAULT_CHAT_ROOM_ID = env.PUBLIC_DEFAULT_CHAT_ROOM_ID || '00000000-0000-0000-0000-000000000001';
 
 class ChatState {
-    private users = $state<User[]>([]);
+    private users = $state<SafeUser[]>([]);
     private messages = $state<Message[]>([]);
-    private currentUser = $state<User | null>(null);
+    private currentUser = $state<SafeUser | null>(null);
     private eventSource: EventSource | null = null;
     private reconnectAttempts = 0;
     private maxReconnectAttempts = 5;
     private reconnectDelay = 1000; // Start with 1 second
     private isInitializing = $state(false);
     private currentRoomId = $state<string>(DEFAULT_CHAT_ROOM_ID);
-    private userCache = $state<Record<string, User>>({});
+    private userCache = $state<Record<string, SafeUser>>({});
     private sseError = $state<string | null>(null);
     private sseRetryAfter = $state<number | null>(null);
     private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -80,8 +81,8 @@ class ChatState {
         return this.currentUser;
     }
 
-    async setCurrentUser(user: User | null) {
-        console.debug('setCurrentUser called with', user);
+    async setCurrentUser(user: User | SafeUser | null) {
+        console.debug('setCurrentUser called with', user ? { ...user, password: '[REDACTED]' } : null);
         
         // Prevent concurrent setCurrentUser calls
         if (this.isSettingUser) {
@@ -97,9 +98,12 @@ class ChatState {
                 console.debug('No user to set and no current user, skipping');
                 return;
             }
+
+            // Convert to SafeUser if full User object is passed
+            const safeUser = user ? ('password' in user ? createSafeUser(user) : user) : null;
             
             // If same user is being set, check SSE connection
-            if (user?.id === this.currentUser?.id) {
+            if (safeUser?.id === this.currentUser?.id) {
                 if (!this.eventSource) {
                     console.debug('Same user being set but no active SSE connection, reinitializing.');
                 } else {
@@ -110,11 +114,11 @@ class ChatState {
             
             // Clear existing messages before setting new user
             this.messages = [];
-            this.currentUser = user;
+            this.currentUser = safeUser;
             
-            if (user) {
+            if (safeUser) {
                 // Update user cache with current user
-                this.userCache[user.id] = user;
+                this.userCache[safeUser.id] = safeUser;
                 
                 // Only reinitialize if we have a valid user
                 await this.reinitialize();
@@ -178,8 +182,8 @@ class ChatState {
 
     getOnlineUsers() {
         // Sort users by status: online first, then away, then busy, then offline
-        return [...this.users].sort((a: User, b: User) => {
-            const statusOrder: Record<User['status'], number> = {
+        return [...this.users].sort((a: SafeUser, b: SafeUser) => {
+            const statusOrder: Record<SafeUser['status'], number> = {
                 'online': 0,
                 'away': 1,
                 'busy': 2,
@@ -196,12 +200,10 @@ class ChatState {
         }
 
         // Return a fallback object and cache it to avoid repeated fetches
-        const fallback = {
+        const fallback: SafeUser = {
             id: userId,
             nickname: 'Unknown User',
             status: 'offline',
-            password: '', // system user, no password needed
-            createdAt: Date.now(),
             lastSeen: null,
             avatarUrl: null
         };
@@ -231,11 +233,11 @@ class ChatState {
         }
         
         // Try to get the user from cache first
-        let user: User | undefined = this.userCache[userId];
+        let user: SafeUser | undefined = this.userCache[userId];
         
         // If not in cache, try to find in users array
         if (!user) {
-            const foundUser = this.users.find((u: User) => u.id === userId);
+            const foundUser = this.users.find((u: SafeUser) => u.id === userId);
             if (foundUser) {
                 user = foundUser;
             }
@@ -243,10 +245,9 @@ class ChatState {
         
         const now = Date.now();
         if (user) {
-            const updatedUser: User = {
+            const updatedUser: SafeUser = {
                 ...user,
                 status,
-                // Update lastSeen based on status
                 lastSeen: lastSeen ?? (status === 'offline' ? now : user.lastSeen)
             };
             
@@ -254,7 +255,7 @@ class ChatState {
             this.userCache[userId] = updatedUser;
             
             // Then update or add to users array
-            const index = this.users.findIndex((u: User) => u.id === userId);
+            const index = this.users.findIndex((u: SafeUser) => u.id === userId);
             if (index !== -1) {
                 // Create new array with updated user
                 this.users = [
@@ -280,7 +281,7 @@ class ChatState {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success && data.user) {
-                        const newUser: User = {
+                        const newUser: SafeUser = {
                             ...data.user,
                             status,
                             lastSeen: lastSeen ?? (status === 'offline' ? now : data.user.lastSeen)
@@ -359,20 +360,21 @@ class ChatState {
     }
 
     // Add method to update user cache for public access
-    updateUserCache(users: User[]) {
-        console.debug('Updating user cache with users:', users);
-        // Merge incoming users with the existing cache
+    updateUserCache(users: (User | SafeUser)[]) {
+        console.debug('Updating user cache with users:', users.map(u => ({ ...u, password: '[REDACTED]' })));
+        // Merge incoming users with the existing cache, ensuring we only store SafeUser objects
         users.forEach(user => {
-            if (!this.userCache[user.id] || user.status !== this.userCache[user.id].status) {
-                this.userCache[user.id] = user;
+            const safeUser = 'password' in user ? createSafeUser(user) : user;
+            if (!this.userCache[user.id] || safeUser.status !== this.userCache[user.id].status) {
+                this.userCache[user.id] = safeUser;
                 // Update users array if not already present or if status changed
                 const existingIndex = this.users.findIndex(u => u.id === user.id);
                 if (existingIndex === -1) {
-                    this.users = [...this.users, user];
-                } else if (user.status !== this.users[existingIndex].status) {
+                    this.users = [...this.users, safeUser];
+                } else if (safeUser.status !== this.users[existingIndex].status) {
                     this.users = [
                         ...this.users.slice(0, existingIndex),
-                        user,
+                        safeUser,
                         ...this.users.slice(existingIndex + 1)
                     ];
                 }
@@ -381,27 +383,28 @@ class ChatState {
     }
 
     // Add method to update online users for public access
-    updateOnlineUsers(users: User[]) {
+    updateOnlineUsers(users: (User | SafeUser)[]) {
         const now = Date.now();
-        // Create a hash of the new users data
-        const newHash = JSON.stringify(users);
+        // Convert all users to SafeUser and create a hash
+        const safeUsers = users.map(user => 'password' in user ? createSafeUser(user) : user);
+        const newHash = JSON.stringify(safeUsers);
         
         // Only update if the data has changed
         if (newHash !== this.lastBuddyListHash) {
-            const statusCounts = users.reduce((acc, user) => {
+            const statusCounts = safeUsers.reduce((acc, user) => {
                 acc[user.status] = (acc[user.status] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
             console.debug('Updating online users (data changed):', {
-                total: users.length,
+                total: safeUsers.length,
                 byStatus: statusCounts,
                 timestamp: new Date(now).toISOString()
             });
 
-            this.users = users;
+            this.users = safeUsers;
             // Also update cache
-            users.forEach(user => {
+            safeUsers.forEach(user => {
                 this.userCache[user.id] = user;
             });
             this.lastBuddyListHash = newHash;
@@ -643,7 +646,7 @@ class ChatState {
         // Modify buddy list update handler
         this.eventSource.addEventListener('buddyListUpdate', async (event: MessageEvent) => {
             try {
-                const buddyList = JSON.parse(event.data) as User[];
+                const buddyList = JSON.parse(event.data) as SafeUser[];
                 this.updateOnlineUsers(buddyList);
             } catch (error) {
                 console.debug('Error handling buddy list update via SSE:', error);
@@ -706,8 +709,8 @@ class ChatState {
                 id: message.senderId,
                 nickname: 'Unknown User',
                 status: 'offline',
-                password: '',
-                createdAt: 0
+                avatarUrl: null,
+                lastSeen: null
             }
         }));
     }
