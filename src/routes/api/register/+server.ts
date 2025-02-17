@@ -5,6 +5,7 @@ import { users } from '$lib/db/schema';
 import { hashPassword } from '$lib/utils/password';
 import { validateTurnstileToken } from '$lib/utils/turnstile.server';
 import { createLogger } from '$lib/utils/logger.server';
+import { eq } from 'drizzle-orm';
 
 const log = createLogger('register-server');
 
@@ -120,6 +121,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (password.length < 8 || password.length > 64) {
 		log.warn('Password must be between 8 and 64 characters');
 		return new Response(JSON.stringify({ error: 'Password must be between 8 and 64 characters' } as RegisterResponseError), { status: 400 });
+	}
+
+	// Check if nickname already exists
+	const existingUser = await db.select().from(users).where(eq(users.nickname, username));
+	if (existingUser.length > 0) {
+		log.warn('Username already exists', { username });
+		return new Response(JSON.stringify({ error: 'This username is already taken' } as RegisterResponseError), { status: 409 });
 	}
 
 	// Securely hash the user's password.
