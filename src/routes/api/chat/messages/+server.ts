@@ -7,14 +7,14 @@ import type {
     SendMessageResponse, 
     GetMessagesResponse 
 } from '$lib/types/payloads';
-import { desc, eq, lt, and } from 'drizzle-orm';
+import { and, desc, eq, lt } from 'drizzle-orm/sql';
+import type { SQL } from 'drizzle-orm/sql';
 import { error } from '@sveltejs/kit';
 import { sseEmitter } from '$lib/sseEmitter';
 import { chatRooms } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
 import { createLogger } from '$lib/utils/logger.server';
-import { SQL } from 'drizzle-orm';
 
 const log = createLogger('chat-server');
 

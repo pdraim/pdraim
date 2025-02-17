@@ -33,9 +33,14 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
   export type SafeUser = Omit<User, 'password' | 'createdAt'>;
 
   // Helper function to create a safe user object
-  export function createSafeUser(user: User): SafeUser {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, createdAt, ...safeUser } = user;
+  export function createSafeUser(user: Partial<User> & Pick<User, 'id' | 'nickname' | 'status'>): SafeUser {
+    const safeUser: SafeUser = {
+      id: user.id,
+      nickname: user.nickname,
+      status: user.status,
+      avatarUrl: user.avatarUrl,
+      lastSeen: user.lastSeen
+    };
     return safeUser;
   }
 

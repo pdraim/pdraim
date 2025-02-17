@@ -14,7 +14,7 @@
         activeTab?: 'signin' | 'signup';
     }
 
-    let { showAuth, onLoginSuccess, activeTab: initialTab = 'signin' } = $props();
+    let { showAuth = $bindable(), onLoginSuccess, activeTab: initialTab = 'signin' } = $props();
     
     let activeTab = $state(initialTab);
 

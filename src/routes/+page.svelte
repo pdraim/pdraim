@@ -6,6 +6,9 @@
     let showChatRoom = $state(true);
     let showAuth = $state(false);
 
+    function handleLoginSuccess() {
+        showAuth = false;
+    }
 </script>
     
 <div class="desktop content-wrapper">
@@ -16,7 +19,10 @@
 	{/if}
 
 	{#if showAuth}
-		<AimLogin bind:showAuth />
+		<AimLogin 
+			bind:showAuth 
+			onLoginSuccess={handleLoginSuccess}
+		/>
 	{/if}
 </div>
     

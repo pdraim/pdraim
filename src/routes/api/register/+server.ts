@@ -5,7 +5,7 @@ import { users } from '$lib/db/schema';
 import { hashPassword } from '$lib/utils/password';
 import { validateTurnstileToken } from '$lib/utils/turnstile.server';
 import { createLogger } from '$lib/utils/logger.server';
-import { eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm/sql';
 
 const log = createLogger('register-server');
 

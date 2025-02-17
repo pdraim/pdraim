@@ -1,6 +1,7 @@
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm/sql';
 import db from '$lib/db/db.server';
-import { messages, users } from '$lib/db/schema';
+import { users } from '$lib/db/schema';
+import type { SafeUser } from '$lib/types/chat';
 import type { PublicRoomResponse } from '$lib/types/payloads';
 import { createSafeUser } from '$lib/types/chat';
 import { createLogger } from '$lib/utils/logger.server';
@@ -29,7 +30,7 @@ export async function GET({ params, url, locals }): Promise<Response> {
       .execute();
 
     // Process users to mark them as offline if they've timed out
-    const processedUsers = fetchedUsers.map(user => {
+    const processedUsers = fetchedUsers.map((user: SafeUser & { lastSeen: number }) => {
       const shouldBeOffline = user.status === 'online' && user.lastSeen < timeoutThreshold;
       return {
         ...user,
@@ -38,13 +39,13 @@ export async function GET({ params, url, locals }): Promise<Response> {
     });
 
     // Update any users that should be offline in the database
-    const usersToUpdate = processedUsers.filter(user => 
+    const usersToUpdate = processedUsers.filter((user: SafeUser & { lastSeen: number }) => 
       user.status === 'offline' && 
-      fetchedUsers.find(u => u.id === user.id)?.status === 'online'
+      fetchedUsers.find((u: SafeUser & { lastSeen: number }) => u.id === user.id)?.status === 'online'
     );
 
     if (usersToUpdate.length > 0) {
-      await Promise.all(usersToUpdate.map(user =>
+      await Promise.all(usersToUpdate.map((user: SafeUser & { lastSeen: number }) =>
         db.update(users)
           .set({ status: 'offline', lastSeen: Date.now() })
           .where(eq(users.id, user.id))
@@ -53,12 +54,12 @@ export async function GET({ params, url, locals }): Promise<Response> {
       
       log.debug('Updated offline status for users', { 
         count: usersToUpdate.length,
-        userIds: usersToUpdate.map(u => u.id)
+        userIds: usersToUpdate.map((u: SafeUser & { lastSeen: number }) => u.id)
       });
     }
     
     // Sanitize user data using createSafeUser
-    const sanitizedUsers = processedUsers.map(user => createSafeUser(user));
+    const sanitizedUsers = processedUsers.map((user: SafeUser & { lastSeen: number }) => createSafeUser(user));
 
     const responseData: PublicRoomResponse = {
       success: true,

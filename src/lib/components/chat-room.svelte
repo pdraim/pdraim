@@ -381,6 +381,10 @@ let totalUsers = $derived(onlineUsers.length);
 function openSignup() {
     showAuth = true;
 }
+
+function handleLoginSuccess() {
+    showAuth = false;
+}
 </script>
 
 {#if showChatRoom}
@@ -537,8 +541,9 @@ function openSignup() {
 
 {#if showAuth}
     <AimLogin 
-        bind:showAuth 
-        activeTab={'signup' as const} 
+        bind:showAuth
+        activeTab={'signup' as const}
+        onLoginSuccess={handleLoginSuccess}
     />
 {/if}
 
