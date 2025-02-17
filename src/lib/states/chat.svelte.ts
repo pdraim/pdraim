@@ -35,6 +35,7 @@ class ChatState {
     private lastBuddyListUpdate = 0;
     private lastBuddyListHash = '';
     private hasMoreMessages = $state(false);
+    private publicPollingInterval: ReturnType<typeof setInterval> | null = null;
 
     public async reinitialize() {
         if (this.isInitializing) {
