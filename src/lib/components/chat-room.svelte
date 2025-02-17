@@ -30,6 +30,9 @@ let cooldownProgress = $state(0);
 let cooldownInterval: ReturnType<typeof setInterval> | null = null;
 let rateLimitWarning = $state<string | null>(null);
 
+// At the top along with other variable declarations, add:
+let roomPollInterval: ReturnType<typeof setInterval> | null = null;
+
 function updateCooldownProgress() {
   if (!cooldownEndTime) return;
   
@@ -193,9 +196,36 @@ onMount(() => {
   // Add resize listener
   window.addEventListener('resize', handleResize);
 
+  // ---- New: Polling for public buddy list updates ----
+  if (!currentUser) {
+    const fetchPublicRoom = async () => {
+      const defaultRoomId = chatState.getDefaultChatRoomId();
+      try {
+        const response = await fetch(`/api/rooms/${defaultRoomId}?public=true`);
+        if (response.ok) {
+          const roomData = await response.json();
+          if (roomData.success && roomData.buddyList) {
+            // Update both chat state and local onlineUsers list
+            chatState.updateOnlineUsers(roomData.buddyList);
+            onlineUsers = roomData.buddyList;
+            console.debug('Public polling updated buddy list:', roomData.buddyList);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching public buddy list:', error);
+      }
+    };
+
+    // Initial fetch then poll every 30 seconds
+    fetchPublicRoom();
+    roomPollInterval = setInterval(fetchPublicRoom, 30000);
+  }
+  // -------------------------------------------------------
+
   return () => {
     window.removeEventListener('resize', handleResize);
     if (cooldownInterval) clearInterval(cooldownInterval);
+    if (roomPollInterval) clearInterval(roomPollInterval);
   };
 });
 
