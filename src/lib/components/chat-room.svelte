@@ -640,17 +640,27 @@ function handleLoginSuccess() {
   .title-bar {
     height: 2rem;
     position: relative;
-    cursor: move;
+    cursor: default;
     user-select: none;
     display: flex;
     align-items: center;
     padding: 0 0.5rem;
   }
 
+  .title-bar:not(:has(button:hover)) {
+    cursor: move;
+  }
+
   .chat-window {
     position: fixed;
     box-sizing: border-box;
     transition: width 0.3s ease, height 0.3s ease, left 0.3s ease, top 0.3s ease;
+    will-change: transform;
+  }
+
+  .chat-window.dragging {
+    transition: none !important;
+    user-select: none;
   }
 
   .chat-area {

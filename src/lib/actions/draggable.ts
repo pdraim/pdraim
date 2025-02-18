@@ -29,34 +29,42 @@ export const draggable: Action<HTMLElement, DraggableParameters, DraggableAttrib
     return;
   }
 
-  // Set initial position from existing inline styles or computed styles
-  const computedStyle = getComputedStyle(node);
-  const existingLeft = node.style.left || computedStyle.left;
-  const existingTop = node.style.top || computedStyle.top;
-  
-  x = parseInt(existingLeft) || 0;
-  y = parseInt(existingTop) || 0;
-
-  // Ensure the element is positioned
-  const position = computedStyle.position;
-  if (position !== 'relative' && position !== 'absolute' && position !== 'fixed') {
+  // Ensure proper positioning
+  if (getComputedStyle(node).position === 'static') {
     node.style.position = 'fixed';
   }
 
-  node.style.left = `${x}px`;
-  node.style.top = `${y}px`;
+  function getNodePosition() {
+    const rect = node.getBoundingClientRect();
+    return {
+      x: rect.left,
+      y: rect.top
+    };
+  }
+
+  function updatePosition(newX: number, newY: number) {
+    x = newX;
+    y = newY;
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+  }
 
   function onMouseDown(event: MouseEvent) {
-    if (!isEnabled) return;
+    if (!isEnabled || event.button !== 0) return;
     
-    // Only handle left mouse button
-    if (event.button !== 0) return;
+    // Check if we're clicking a button in the title bar
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'BUTTON' || target.closest('button')) {
+      return;
+    }
     
     isDragging = true;
-    const rect = node.getBoundingClientRect();
     
-    x = rect.left;
-    y = rect.top;
+    // Get current position
+    const pos = getNodePosition();
+    x = pos.x;
+    y = pos.y;
+    
     startX = event.clientX - x;
     startY = event.clientY - y;
     
@@ -64,7 +72,9 @@ export const draggable: Action<HTMLElement, DraggableParameters, DraggableAttrib
       detail: { x, y }
     }));
     
-    // Prevent text selection while dragging
+    // Add dragging class for styling
+    node.classList.add('dragging');
+    
     event.preventDefault();
   }
 
@@ -75,30 +85,27 @@ export const draggable: Action<HTMLElement, DraggableParameters, DraggableAttrib
     let newY = event.clientY - startY;
 
     if (bounds === 'window') {
-      // Keep within window bounds
       newX = Math.max(0, Math.min(newX, window.innerWidth - node.offsetWidth));
       newY = Math.max(0, Math.min(newY, window.innerHeight - node.offsetHeight));
     } else if (bounds === 'parent' && node.parentElement) {
-      // Keep within parent bounds
       const parent = node.parentElement;
       newX = Math.max(0, Math.min(newX, parent.offsetWidth - node.offsetWidth));
       newY = Math.max(0, Math.min(newY, parent.offsetHeight - node.offsetHeight));
     }
 
-    x = newX;
-    y = newY;
-    
-    node.style.left = `${x}px`;
-    node.style.top = `${y}px`;
-    
-    node.dispatchEvent(new CustomEvent('dragmove', {
-      detail: { x, y }
-    }));
+    requestAnimationFrame(() => {
+      updatePosition(newX, newY);
+      node.dispatchEvent(new CustomEvent('dragmove', {
+        detail: { x: newX, y: newY }
+      }));
+    });
   }
 
   function onMouseUp() {
     if (!isDragging) return;
     isDragging = false;
+    
+    node.classList.remove('dragging');
     
     node.dispatchEvent(new CustomEvent('dragend', {
       detail: { x, y }
@@ -106,21 +113,20 @@ export const draggable: Action<HTMLElement, DraggableParameters, DraggableAttrib
   }
 
   handleElement.style.cursor = isEnabled ? 'move' : 'default';
-  handleElement.addEventListener('mousedown', onMouseDown as EventListener);
-  window.addEventListener('mousemove', onMouseMove as EventListener);
-  window.addEventListener('mouseup', onMouseUp as EventListener);
+  handleElement.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mousemove', onMouseMove, { passive: true });
+  window.addEventListener('mouseup', onMouseUp);
 
   return {
     update(newParams: DraggableParameters) {
-      const newEnabled = newParams.enabled !== undefined ? newParams.enabled : true;
-      isEnabled = newEnabled;
+      isEnabled = newParams.enabled !== undefined ? newParams.enabled : true;
       handleElement.style.cursor = isEnabled ? 'move' : 'default';
       Object.assign(params, newParams);
     },
     destroy() {
-      handleElement.removeEventListener('mousedown', onMouseDown as EventListener);
-      window.removeEventListener('mousemove', onMouseMove as EventListener);
-      window.removeEventListener('mouseup', onMouseUp as EventListener);
+      handleElement.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
     }
   };
 }; 
