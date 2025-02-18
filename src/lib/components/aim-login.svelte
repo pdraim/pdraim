@@ -7,6 +7,7 @@
     import { chatState } from '$lib/states/chat.svelte';
     import Turnstile from './turnstile.svelte';
     import { createSafeUser } from '$lib/types/chat';
+    import { onMount } from 'svelte';
     
     interface $$Props {
         showAuth: boolean;
@@ -33,6 +34,23 @@
     let signupError = $state('');
     let signupStatus = $state('idle');
     let suTurnstileToken = $state('');
+
+    // Added dragging state and handler similar to chat-room
+    let windowX = $state(0);
+    let windowY = $state(0);
+
+    // Initialize window position on mount
+    onMount(() => {
+        if (window.innerWidth > 768) { // Desktop mode
+            windowX = window.innerWidth * 0.2;
+            windowY = window.innerHeight * 0.2;
+        }
+    });
+    
+    function handleDragMove(event: CustomEvent<{ x: number; y: number }>) {
+        windowX = event.detail.x;
+        windowY = event.detail.y;
+    }
 
     function handleClose() {
         console.debug("Closing AIM Login component.");
@@ -220,15 +238,6 @@
             console.debug("Escape key pressed, closing AIM Login component.");
             handleClose();
         }
-    }
-
-    // Added dragging state and handler similar to chat-room
-    let windowX = $state(0);
-    let windowY = $state(0);
-    
-    function handleDragMove(event: CustomEvent<{ x: number; y: number }>) {
-        windowX = event.detail.x;
-        windowY = event.detail.y;
     }
 </script>
 
