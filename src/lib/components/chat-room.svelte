@@ -535,7 +535,7 @@ function handleLoginSuccess() {
           {/if}
           {#if showRegistrationPrompt}
             <div class="registration-prompt">
-              <p>👋 <button class="link-button" onclick={openSignup}>Inscris-toi</button> pour lire le reste du chat !</p>
+              <p>👋 <button class="link-button" onclick={openSignup}>Inscris-toi</button>pour lire le reste du chat !</p>
             </div>
           {/if}
           {#each visibleMessages as message (message.id)}
@@ -546,9 +546,10 @@ function handleLoginSuccess() {
                     text: formatFrenchDateTime(new Date(message.timestamp)), 
                     direction: "left",
                     closeDelay: 1000,
-                    touchBehavior: "remove"
+                    touchBehavior: "remove",
+                    interactive: false
                   }}>
-                    <span class="nickname">{message.user.nickname}</span>
+                    <span class="nickname pointer-events-none">{message.user.nickname}</span>
                   </Tooltip>
                   {message.content}
                 </span>
@@ -557,9 +558,10 @@ function handleLoginSuccess() {
                   text: formatFrenchDateTime(new Date(message.timestamp)), 
                   direction: "left",
                   closeDelay: 1000,
-                  touchBehavior: "remove"
+                  touchBehavior: "remove",
+                  interactive: false
                 }}>
-                  <span class="nickname">{message.user.nickname}:</span>
+                  <span class="nickname pointer-events-none">{message.user.nickname}:</span>
                 </Tooltip>
                 <span class="content">{message.content}</span>
               {/if}
@@ -1019,5 +1021,9 @@ function handleLoginSuccess() {
     display: flex;
     gap: 2px;
     margin-left: auto;
+  }
+
+  .pointer-events-none {
+    pointer-events: none;
   }
 </style>

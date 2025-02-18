@@ -12,8 +12,8 @@
   let text = $derived(data.text);
   let direction = $derived(data.direction ?? 'top');
 
-  let wrapper: HTMLDivElement;
-  let tooltipDiv: HTMLDivElement | null = null;
+  let wrapper: HTMLButtonElement;
+  let tooltipDiv = $state<HTMLDivElement | null>(null);
   let coords = { x: 0, y: 0 };
 
   function updateCoords() {
@@ -33,11 +33,14 @@
 
   function showTooltip() {
     updateCoords();
+    if (tooltipDiv) return; // Prevent multiple tooltips
     tooltipDiv = document.createElement('div');
     tooltipDiv.className = `tooltip ${direction}`;
     tooltipDiv.style.position = 'fixed';
     tooltipDiv.style.zIndex = '1000000';
     tooltipDiv.textContent = text;
+    tooltipDiv.setAttribute('role', 'tooltip');
+    tooltipDiv.setAttribute('aria-hidden', 'false');
     document.body.appendChild(tooltipDiv);
 
     const tooltipRect = tooltipDiv.getBoundingClientRect();
@@ -78,24 +81,61 @@
       tooltipDiv = null;
     }
   }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      hideTooltip();
+    }
+  }
 </script>
 
-<div 
+<button 
   class="tooltip-wrapper" 
   bind:this={wrapper}
   onmouseover={showTooltip}
   onmouseout={hideTooltip}
   onfocus={showTooltip}
   onblur={hideTooltip}
-  role="tooltip"
-  tabindex="-1"
+  onkeydown={handleKeyDown}
+  type="button"
+  aria-describedby={tooltipDiv?.id}
 >
   {@render children()}
-</div>
+</button>
 
 <style>
   .tooltip-wrapper {
-    display: inline-block;
+    display: inline;
+    width: auto;
+    min-width: 0;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font: inherit !important;
+    color: inherit !important;
+    cursor: inherit !important;
+    text-align: inherit !important;
+    box-shadow: none !important;
+    text-shadow: inherit !important;
+    border-radius: 0 !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    white-space: pre;
+  }
+  .tooltip-wrapper:hover, 
+  .tooltip-wrapper:active {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .tooltip-wrapper:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .tooltip-wrapper:focus-visible {
+    outline: 2px solid #003C74 !important;
+    outline-offset: 2px !important;
   }
   /* Use :global for styles that need to apply to elements outside the component */
   :global(.tooltip) {
