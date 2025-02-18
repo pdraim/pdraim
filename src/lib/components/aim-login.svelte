@@ -89,16 +89,59 @@
         }
     }
 
+    // New: Create a helper function for client-side validations based on server rules.
+    function validateSignupData(): string | null {
+        // Trim values
+        const username = suUsername.trim();
+        const password = suPassword.trim();
+        const confirmPasswordValue = suConfirmPassword.trim();
+
+        if (!username || !password || !confirmPasswordValue) {
+            return 'All fields must be filled';
+        }
+
+        if (username.length < 3) {
+            return 'Username must be at least 3 characters';
+        }
+
+        if (username.length > 32) {
+            return 'Username must be at most 32 characters';
+        }
+
+        // Only allow letters, numbers, underscores, and dashes in the username.
+        const usernameRegex = /^[a-zA-Z0-9_-]+$/;
+        if (!usernameRegex.test(username)) {
+            return 'Invalid username. Only letters, numbers, underscores, and dashes are allowed.';
+        }
+
+        if (password !== confirmPasswordValue) {
+            return 'Passwords do not match';
+        }
+
+        if (password.length < 8 || password.length > 64) {
+            return 'Password must be between 8 and 64 characters';
+        }
+
+        // All checks passed.
+        return null;
+    }
+
     async function handleSignupSubmit() {
         signupError = '';
         signupStatus = 'loading';
-        if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || !suTurnstileToken) {
-            signupError = 'Please complete all fields including the security check';
+
+        // Client-side validations before submitting the form.
+        const validationError = validateSignupData();
+        if (validationError) {
+            signupError = validationError;
             signupStatus = 'error';
             return;
         }
-        if (suPassword !== suConfirmPassword) {
-            signupError = 'Passwords do not match';
+
+        // Additional check for captcha and Turnstile token,
+        // in case those fields are not filled.
+        if (!captchaAnswer || !suTurnstileToken) {
+            signupError = 'Please complete all fields including the security check';
             signupStatus = 'error';
             return;
         }
@@ -108,10 +151,10 @@
             const res = await fetch('/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    suUsername, 
-                    suPassword, 
-                    suConfirmPassword, 
+                body: JSON.stringify({
+                    suUsername,
+                    suPassword,
+                    suConfirmPassword,
                     captchaAnswer,
                     turnstileToken: suTurnstileToken
                 })
@@ -127,7 +170,7 @@
             console.debug("Registration succeeded:", data);
             signupStatus = 'success';
 
-            // Auto login after registration
+            // Auto login after registration.
             await handleAutoLoginSignup();
             return;
         } catch (err) {

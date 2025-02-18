@@ -2,7 +2,7 @@ import type { RequestHandler } from '@sveltejs/kit';
 import type { LoginResponseSuccess, LoginResponseError } from '$lib/types/payloads';
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm/sql';
 import { verifyPassword } from '$lib/utils/password';
 import { generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
@@ -27,6 +27,13 @@ setInterval(() => {
         }
     }
 }, 60 * 60 * 1000);
+
+// Helper to parse clearance cookie from headers
+function getClearanceCookie(cookieHeader: string | null): string | null {
+    if (!cookieHeader) return null;
+    const match = cookieHeader.match(/cf-turnstile-clearance=([^;]+)/);
+    return match ? match[1] : null;
+}
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
     log.debug('New login attempt received');
@@ -68,8 +75,20 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError), { status: 400 });
     }
 
-    // Validate Turnstile token
-    const isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+    // NEW: Check if a clearance cookie exists
+    const cookieHeader = request.headers.get('cookie');
+    const clearanceCookie = getClearanceCookie(cookieHeader);
+    let isValidTurnstile = false;
+    
+    if (clearanceCookie) {
+        // Optional: Validate the clearance cookie if needed.
+        log.debug('Clearance cookie detected; bypassing token challenge.');
+        isValidTurnstile = true;
+    } else {
+        // Fallback: Validate the turnstile token
+        isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+    }
+
     if (!isValidTurnstile) {
         log.warn('Invalid Turnstile token', { maskedIp });
         return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as LoginResponseError), { status: 400 });
