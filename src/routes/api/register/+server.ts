@@ -157,5 +157,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		return new Response(JSON.stringify({ error: 'User registration failed. Possibly user already exists.' } as RegisterResponseError), { status: 409 });
 	}
 
-	return new Response(JSON.stringify({ success: true } as RegisterResponseSuccess), { status: 201 });
+	// Set a clearance cookie (valid for 1 hour) to hold the turnstile success.
+	const headers = new Headers();
+	headers.set(
+		'set-cookie',
+		`cf-clearance=1; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict`
+	);
+
+	return new Response(
+		JSON.stringify({ success: true } as RegisterResponseSuccess),
+		{ status: 201, headers }
+	);
 };

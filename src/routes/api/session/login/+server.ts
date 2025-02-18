@@ -41,18 +41,20 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
     if (request.method !== 'POST') {
         log.warn('Invalid method used', { method: request.method });
-        return new Response(JSON.stringify({ error: 'Method Not Allowed' } as LoginResponseError), { status: 405 });
+        return new Response(
+            JSON.stringify({ error: 'Method Not Allowed' } as LoginResponseError),
+            { status: 405 }
+        );
     }
 
     // Get the IP address for rate limiting and Turnstile validation
     const ip = request.headers.get('x-forwarded-for') || 'unknown';
-    const maskedIp = ip.split('.').map((octet, idx) => idx < 3 ? 'xxx' : octet).join('.');
+    const maskedIp = ip.split('.').map((octet, idx) => (idx < 3 ? 'xxx' : octet)).join('.');
     const now = Date.now();
     const attemptData = loginAttempts.get(ip) || { count: 0, lastAttempt: 0 };
 
-    // If the user has failed three or more times, apply exponential backoff
     if (attemptData.count >= MAX_ATTEMPTS) {
-        const delay = Math.pow(2, attemptData.count - MAX_ATTEMPTS + 1) * 1000; // delay in milliseconds
+        const delay = Math.pow(2, attemptData.count - MAX_ATTEMPTS + 1) * 1000;
         log.warn('Rate limit exceeded', { maskedIp, delay });
         await sleep(delay);
     }
@@ -62,37 +64,54 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         body = await request.json();
     } catch {
         log.warn('Invalid JSON payload received');
-        return new Response(JSON.stringify({ error: 'Invalid JSON' } as LoginResponseError), { status: 400 });
+        return new Response(
+            JSON.stringify({ error: 'Invalid JSON' } as LoginResponseError),
+            { status: 400 }
+        );
     }
 
-    const { username, password, turnstileToken } = body as { username: string, password: string, turnstileToken: string };
+    // Extract cookie header and clearance cookie BEFORE validating input.
+    const cookieHeader = request.headers.get('cookie');
+    const clearanceCookie = getClearanceCookie(cookieHeader);
 
-    if (typeof username !== 'string' || typeof password !== 'string' || typeof turnstileToken !== 'string') {
-        log.warn('Missing or invalid input fields', { 
+    // Note: Mark turnstileToken as optional if a valid clearance cookie exists.
+    const { username, password, turnstileToken } = body as {
+        username: string;
+        password: string;
+        turnstileToken?: string;
+    };
+
+    if (
+        typeof username !== 'string' ||
+        typeof password !== 'string' ||
+        (!clearanceCookie && typeof turnstileToken !== 'string')
+    ) {
+        log.warn('Missing or invalid input fields', {
             hasUsername: typeof username === 'string',
             hasPassword: typeof password === 'string',
             hasTurnstileToken: typeof turnstileToken === 'string'
         });
-        return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError), { status: 400 });
+        return new Response(
+            JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError),
+            { status: 400 }
+        );
     }
 
-    // NEW: Check if a clearance cookie exists
-    const cookieHeader = request.headers.get('cookie');
-    const clearanceCookie = getClearanceCookie(cookieHeader);
+    // Check for clearance cookie before validating Turnstile token.
     let isValidTurnstile = false;
-    
     if (clearanceCookie) {
-        // Optional: Validate the clearance cookie if needed.
         log.debug('Clearance cookie detected; bypassing token challenge.');
         isValidTurnstile = true;
     } else {
-        // Fallback: Validate the turnstile token
-        isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+        isValidTurnstile = await validateTurnstileToken(turnstileToken as string, ip);
     }
 
     if (!isValidTurnstile) {
         log.warn('Invalid Turnstile token', { maskedIp });
-        return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as LoginResponseError), { status: 400 });
+        return new Response(
+            JSON.stringify({ error: 'Security check failed. Please try again.' } as LoginResponseError),
+            { status: 400 }
+        );
     }
 
     // Find user by username
