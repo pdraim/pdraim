@@ -73,7 +73,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	// Validate PDR captcha
 	const normalizedAnswer = captchaAnswer.trim().toLowerCase();
-	if (normalizedAnswer !== 'poudlard' && normalizedAnswer !== 'poudlard rp') {
+	if (normalizedAnswer !== 'point de rencontre') {
 		attemptData.count++;
 		attemptData.lastAttempt = now;
 		captchaAttempts.set(ip, attemptData);
@@ -100,6 +100,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!username || !password || !confirmPassword) {
 		log.warn('All fields must be filled');
 		return new Response(JSON.stringify({ error: 'All fields must be filled' } as RegisterResponseError), { status: 400 });
+	}
+
+	if (username.length < 3) {
+		log.warn('Username must be at least 3 characters');
+		return new Response(JSON.stringify({ error: 'Username must be at least 3 characters' } as RegisterResponseError), { status: 400 });
 	}
 
 	if (username.length > 32) {
