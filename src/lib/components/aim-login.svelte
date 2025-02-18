@@ -355,6 +355,32 @@
         /* Changed to fixed positioning for correct dragging */
         position: fixed;
     }
+
+    @media (max-width: 768px) {
+        .login-window {
+            width: 100% !important;
+            height: 100% !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            transform: none !important;
+        }
+
+        .window-content {
+            height: calc(100% - 80px); /* Account for title bar and tabs */
+            overflow-y: auto;
+        }
+
+        form {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+    }
+
     .title-bar {
         background: linear-gradient(180deg, #0054E3 0%, #0047AB 100%);
         padding: 4px 6px;

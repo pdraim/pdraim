@@ -6,6 +6,7 @@ import { browser } from '$app/environment';
 import { draggable } from '$lib/actions/draggable';
 import { resizable } from '$lib/actions/resizable';
 import { maximizable } from '$lib/actions/maximizable';
+import { minimizable } from '$lib/actions/minimizable';
 import LoadingButton from './ui/button-loading.svelte';
 import Tooltip from './ui/tooltip.svelte';
 import LoadingDots from './ui/loading-dots.svelte';
@@ -23,6 +24,7 @@ let showUserList = $state(false);
 let isMaximized = $state(false);
 let isInitialLoading = $state(true);
 let showAuth = $state(false);
+let isMinimized = $state(false);
 
 // Rate limiting state
 let cooldownEndTime = $state<number | null>(null);
@@ -311,7 +313,19 @@ interface MaximizableNode extends HTMLElement {
 function handleMaximize(event: MouseEvent) {
   const node = (event.currentTarget as HTMLElement).closest('.window') as MaximizableNode;
   if (node) {
-    node.toggleMaximize();
+    // If minimized, restore first
+    if (isMinimized) {
+      const minimizableNode = node as any;
+      if (minimizableNode?.toggleMinimize) {
+        minimizableNode.toggleMinimize();
+      }
+      // Wait for minimize animation to complete
+      setTimeout(() => {
+        node.toggleMaximize();
+      }, 300);
+    } else {
+      node.toggleMaximize();
+    }
   }
 }
 
@@ -327,6 +341,10 @@ function handleMaximizeEvent(event: CustomEvent<{
   windowHeight = event.detail.height;
   windowX = event.detail.x;
   windowY = event.detail.y;
+}
+
+function handleMinimize(event: CustomEvent<{ isMinimized: boolean }>) {
+  isMinimized = event.detail.isMinimized;
 }
 
 async function handleScroll(event: Event) {
@@ -419,18 +437,21 @@ function handleLoginSuccess() {
 
 {#if showChatRoom}
 <div 
-  class="chat-window window" 
+  class="chat-window window"
+  class:minimized={isMinimized}
   style="width: {windowWidth}px; height: {windowHeight}px; left: {windowX}px; top: {windowY}px;"
   use:draggable={{ handle: '.title-bar', enabled: !isMobile && !isMaximized }}
   use:resizable={{
-    enabled: !isMobile && !isMaximized,
+    enabled: !isMobile && !isMaximized && !isMinimized,
     minWidth: 400,
     minHeight: 500,
     maxWidth: window.innerWidth - 40,
     maxHeight: window.innerHeight - 40
   }}
-  use:maximizable={{ enabled: !isMobile, padding: 4 }}
+  use:maximizable={{ enabled: !isMobile && !isMinimized, padding: 4 }}
+  use:minimizable={{ enabled: !isMobile }}
   onmaximize={handleMaximizeEvent}
+  onminimize={handleMinimize}
   onresizemove={(e) => {
     windowWidth = Math.max(400, e.detail.width);
     windowHeight = Math.max(500, e.detail.height);
@@ -438,15 +459,19 @@ function handleLoginSuccess() {
   ondragmove={handleDragMove}
 >
   <div class="title-bar">
-    <div class="title-bar-text">
+    <div class="title-bar-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
       Pdr Aim {#if currentUser} - {currentUser.nickname}{:else} - {totalUsers} membre{totalUsers > 1 ? 's' : ''}{/if}
-      {#if sseError}
+      {#if sseError && !isMinimized}
         <span class="connection-error">⚠️ Erreur de connexion</span>
       {/if}
     </div>
     <div class="title-bar-controls">
       {#if !isMobile}
-        <button aria-label="Minimize"></button>
+        <button aria-label="Minimize" onclick={(e) => {
+          e.stopPropagation();
+          const node = (e.currentTarget as HTMLElement).closest('.window') as any;
+          if (node?.toggleMinimize) node.toggleMinimize();
+        }}></button>
         <button 
           aria-label="Maximize" 
           class:maximized={isMaximized}
@@ -457,115 +482,142 @@ function handleLoginSuccess() {
         <button 
           aria-label="Afficher/Masquer la liste des contacts"
           onclick={() => showUserList = !showUserList}
+          class="contacts-btn"
         >👥</button>
+        <button 
+          aria-label="Minimize"
+          onclick={(e) => {
+            e.stopPropagation();
+            const node = (e.currentTarget as HTMLElement).closest('.window') as any;
+            if (node?.toggleMinimize) node.toggleMinimize();
+          }}
+        ></button>
+        <button onclick={handleClose} aria-label="Close"></button>
       {/if}
     </div>
   </div>
 
-  <div class="window-body" style="display: flex; height: calc(100% - 2rem); margin: 0; padding: 0.5rem;">
-    {#if sseError}
-      <div class="error-banner">
-        {sseError}
-        {#if sseRetryAfter}
-          <br>
-          <small>Nouvelle tentative dans {Math.ceil(sseRetryAfter)}s...</small>
-        {/if}
-      </div>
-    {/if}
-    
-    <div class="chat-container" style="flex: 1; display: flex; flex-direction: column; margin-right: 0.5rem;">
-      {#if rateLimitWarning}
-        <div class="rate-limit-warning" class:with-progress={cooldownEndTime}>
-          <span>{rateLimitWarning}</span>
-          {#if cooldownEndTime}
-            <small>Vous pourrez envoyer un autre message dans {cooldownProgress.toFixed(1)}s</small>
+  {#if !isMinimized}
+    <div class="window-body" style="display: flex; height: calc(100% - 2rem); margin: 0; padding: 0.5rem;">
+      {#if sseError}
+        <div class="error-banner">
+          {sseError}
+          {#if sseRetryAfter}
+            <br>
+            <small>Nouvelle tentative dans {Math.ceil(sseRetryAfter)}s...</small>
           {/if}
         </div>
       {/if}
-
-      <div 
-        class="sunken-panel chat-area"
-        style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
-        onscroll={(e) => handleScroll(e)}
-      >
-        {#if isInitialLoading}
-          <div class="initial-loading">
-            <LoadingDots text="Chargement des messages" />
-          </div>
-        {:else if isLoadingMore}
-          <div class="loading-messages">
-            <LoadingDots text="Chargement" />
-          </div>
-        {/if}
-        {#if showRegistrationPrompt}
-          <div class="registration-prompt">
-            <p>👋 <button class="link-button" onclick={openSignup}>Inscris-toi</button> pour lire le reste du chat !</p>
-          </div>
-        {/if}
-        {#each visibleMessages as message (message.id)}
-          <div class="message {message.type} text">
-            {#if message.type === 'emote'}
-              <span class="emote-text">
-                <Tooltip data={{ text: formatFrenchDateTime(new Date(message.timestamp)), direction: "right" }}>
-                  <span class="nickname">{message.user.nickname}</span>
-                </Tooltip>
-                {message.content}
-              </span>
-            {:else}
-              <Tooltip data={{ text: formatFrenchDateTime(new Date(message.timestamp)), direction: "right" }}>
-                <span class="nickname">{message.user.nickname}:</span>
-              </Tooltip>
-              <span class="content">{message.content}</span>
+      
+      <div class="chat-container" style="flex: 1; display: flex; flex-direction: column; margin-right: 0.5rem;">
+        {#if rateLimitWarning}
+          <div class="rate-limit-warning" class:with-progress={cooldownEndTime}>
+            <span>{rateLimitWarning}</span>
+            {#if cooldownEndTime}
+              <small>Vous pourrez envoyer un autre message dans {cooldownProgress.toFixed(1)}s</small>
             {/if}
+          </div>
+        {/if}
+
+        <div 
+          class="sunken-panel chat-area"
+          style="flex: 1; margin-bottom: 0.5rem; padding: 0.5rem; overflow-y: auto;"
+          onscroll={(e) => handleScroll(e)}
+        >
+          {#if isInitialLoading}
+            <div class="initial-loading">
+              <LoadingDots text="Chargement des messages" />
+            </div>
+          {:else if isLoadingMore}
+            <div class="loading-messages">
+              <LoadingDots text="Chargement" />
+            </div>
+          {/if}
+          {#if showRegistrationPrompt}
+            <div class="registration-prompt">
+              <p>👋 <button class="link-button" onclick={openSignup}>Inscris-toi</button> pour lire le reste du chat !</p>
+            </div>
+          {/if}
+          {#each visibleMessages as message (message.id)}
+            <div class="message {message.type} text">
+              {#if message.type === 'emote'}
+                <span class="emote-text">
+                  <Tooltip data={{ 
+                    text: formatFrenchDateTime(new Date(message.timestamp)), 
+                    direction: "left",
+                    closeDelay: 1000,
+                    touchBehavior: "remove"
+                  }}>
+                    <span class="nickname">{message.user.nickname}</span>
+                  </Tooltip>
+                  {message.content}
+                </span>
+              {:else}
+                <Tooltip data={{ 
+                  text: formatFrenchDateTime(new Date(message.timestamp)), 
+                  direction: "left",
+                  closeDelay: 1000,
+                  touchBehavior: "remove"
+                }}>
+                  <span class="nickname">{message.user.nickname}:</span>
+                </Tooltip>
+                <span class="content">{message.content}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        
+        <div class="field-row input-container" style="margin: 0;">
+          <input 
+            type="text" 
+            bind:value={currentMessage}
+            style="flex: 1;"
+            onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
+            placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
+            disabled={!currentUser || Boolean(cooldownEndTime)}
+          />
+          <LoadingButton 
+            onclick={handleSubmit} 
+            disabled={!currentUser || Boolean(cooldownEndTime)} 
+            loading={isSendingMessage}
+            text={cooldownEndTime ? `${cooldownProgress.toFixed(1)}s` : "Envoyer"}
+          />
+        </div>
+        {#if cooldownEndTime}
+          <div class="cooldown-progress" style="width: {100 - (cooldownProgress * 100 / (cooldownEndTime - Date.now()) * 1000)}%"></div>
+        {/if}
+      </div>
+
+      <!-- Online users list -->
+      <div 
+        class="sunken-panel users-list"
+        class:mobile={isMobile}
+        class:hidden={isMobile && !showUserList}
+        style="width: {isMobile ? '100%' : '9.375rem'}; padding: 0.5rem; overflow-y: auto;"
+      >
+        <p style="margin: 0 0 0.3rem 0;"><strong>{totalUsers} membre{totalUsers > 1 ? 's' : ''}</strong></p>
+        {#each onlineUsers as user}
+          <div class="user" class:offline={user.status === 'offline'}>
+            <span class="status-icon">{getStatusIcon(user.status)}</span>
+            <div class="user-info">
+              {#if user.status === 'offline'}
+                <Tooltip data={{ 
+                  text: "Dernière connexion: " + formatFrenchRelativeTimeSafe(user.lastSeen), 
+                  direction: "bottom",
+                  closeDelay: 1000,
+                  touchBehavior: "remove"
+                }}>
+                  <div class="nickname select-none">{user.nickname}</div>
+                </Tooltip>
+              {:else}
+                <div class="nickname select-none">{user.nickname}</div>
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
-      
-      <div class="field-row input-container" style="margin: 0;">
-        <input 
-          type="text" 
-          bind:value={currentMessage}
-          style="flex: 1;"
-          onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
-          disabled={!currentUser || Boolean(cooldownEndTime)}
-        />
-        <LoadingButton 
-          onclick={handleSubmit} 
-          disabled={!currentUser || Boolean(cooldownEndTime)} 
-          loading={isSendingMessage}
-          text={cooldownEndTime ? `${cooldownProgress.toFixed(1)}s` : "Envoyer"}
-        />
-      </div>
-      {#if cooldownEndTime}
-        <div class="cooldown-progress" style="width: {100 - (cooldownProgress * 100 / (cooldownEndTime - Date.now()) * 1000)}%"></div>
-      {/if}
     </div>
-
-    <!-- Online users list -->
-    <div 
-      class="sunken-panel users-list"
-      class:mobile={isMobile}
-      class:hidden={isMobile && !showUserList}
-      style="width: {isMobile ? '100%' : '9.375rem'}; padding: 0.5rem; overflow-y: auto;"
-    >
-      <p style="margin: 0 0 0.3rem 0;"><strong>{totalUsers} membre{totalUsers > 1 ? 's' : ''}</strong></p>
-      {#each onlineUsers as user}
-        <div class="user" class:offline={user.status === 'offline'}>
-          <span class="status-icon">{getStatusIcon(user.status)}</span>
-          <div class="user-info">
-            {#if user.status === 'offline'}
-              <Tooltip data={{ text: "Dernière connexion: " + formatFrenchRelativeTimeSafe(user.lastSeen), direction: "bottom" }}>
-                <div class="nickname select-none">{user.nickname}</div>
-              </Tooltip>
-            {:else}
-              <div class="nickname select-none">{user.nickname}</div>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
-  </div>
+  {/if}
 </div>
 {/if}
 
@@ -588,11 +640,15 @@ function handleLoginSuccess() {
     position: relative;
     cursor: move;
     user-select: none;
+    display: flex;
+    align-items: center;
+    padding: 0 0.5rem;
   }
 
   .chat-window {
     position: fixed;
     box-sizing: border-box;
+    transition: width 0.3s ease, height 0.3s ease, left 0.3s ease, top 0.3s ease;
   }
 
   .chat-area {
@@ -723,6 +779,42 @@ function handleLoginSuccess() {
       bottom: 0 !important;
       width: 100% !important;
       height: 100% !important;
+      transition: transform 0.3s ease !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+    }
+
+    .window.minimized {
+      transform: translateY(calc(100% - 32px)) !important;
+      height: 100% !important;
+    }
+
+    .window.minimized .title-bar {
+      height: 32px;
+    }
+
+    .title-bar-controls button {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      margin: 0 2px;
+      background-color: transparent;
+      border: 1px solid transparent;
+      position: relative;
+    }
+
+    .title-bar-controls button.contacts-btn {
+      width: auto;
+      padding: 0 0.5rem;
+      font-size: 1.25rem;
+    }
+
+    .window.minimized .title-bar-controls button {
+      opacity: 0.8;
+    }
+
+    .window.minimized .title-bar-controls button.contacts-btn {
+      opacity: 0.8;
     }
 
     .window-body {
@@ -750,10 +842,6 @@ function handleLoginSuccess() {
     .input-container {
       padding: 0.5rem;
       border-top: 0.125rem solid #dfdfdf;
-    }
-
-    :global(.resize-handle) {
-      display: none;
     }
   }
 
@@ -903,5 +991,33 @@ function handleLoginSuccess() {
   .registration-prompt .link-button:hover {
     color: #ef6c00;
     text-decoration: none;
+  }
+
+  .chat-window.minimized {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  }
+
+  .minimized .title-bar {
+    cursor: pointer;
+  }
+
+  .minimized .window-body {
+    display: none;
+  }
+
+  .minimized :global(.resize-handle) {
+    display: none;
+  }
+
+  .title-bar-text {
+    flex: 1;
+    min-width: 0;
+    padding-right: 0.5rem;
+  }
+
+  .title-bar-controls {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
   }
 </style>
