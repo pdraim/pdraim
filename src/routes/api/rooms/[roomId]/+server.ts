@@ -24,42 +24,59 @@ export async function GET({ params, url, locals }): Promise<Response> {
     // Calculate timeout threshold
     const timeoutThreshold = Date.now() - ONLINE_TIMEOUT_MS;
 
-    // Fetch buddy list: get all users and mark them as offline if they've timed out
+    // Fetch buddy list: get all users
     const fetchedUsers = await db.select()
       .from(users)
       .execute();
 
-    // Process users to mark them as offline if they've timed out
-    const processedUsers = fetchedUsers.map((user: SafeUser & { lastSeen: number }) => {
-      const shouldBeOffline = user.status === 'online' && user.lastSeen < timeoutThreshold;
-      return {
+    // Normalize users to ensure that lastSeen is always a number (using 0 if null)
+    const normalizedUsers = fetchedUsers.map(
+      (user: SafeUser & { lastSeen: number | null }) => ({
         ...user,
-        status: shouldBeOffline ? 'offline' : user.status
-      };
-    });
+        lastSeen: user.lastSeen ?? 0
+      })
+    );
 
-    // Update any users that should be offline in the database
-    const usersToUpdate = processedUsers.filter((user: SafeUser & { lastSeen: number }) => 
-      user.status === 'offline' && 
-      fetchedUsers.find((u: SafeUser & { lastSeen: number }) => u.id === user.id)?.status === 'online'
+    // Process users to mark them as offline if they've timed out
+    const processedUsers = normalizedUsers.map(
+      (user: SafeUser & { lastSeen: number }) => {
+        const shouldBeOffline = user.status === 'online' && user.lastSeen < timeoutThreshold;
+        return {
+          ...user,
+          status: shouldBeOffline ? 'offline' : user.status
+        };
+      }
+    );
+
+    // Find users who were originally online but now marked offline
+    const usersToUpdate = processedUsers.filter(
+      (user: SafeUser & { lastSeen: number }) =>
+        user.status === 'offline' &&
+        normalizedUsers.find(
+          (u: SafeUser & { lastSeen: number }) => u.id === user.id
+        )?.status === 'online'
     );
 
     if (usersToUpdate.length > 0) {
-      await Promise.all(usersToUpdate.map((user: SafeUser & { lastSeen: number }) =>
-        db.update(users)
-          .set({ status: 'offline', lastSeen: Date.now() })
-          .where(eq(users.id, user.id))
-          .execute()
-      ));
+      await Promise.all(
+        usersToUpdate.map((user: SafeUser & { lastSeen: number }) =>
+          db.update(users)
+            .set({ status: 'offline', lastSeen: Date.now() })
+            .where(eq(users.id, user.id))
+            .execute()
+        )
+      );
       
       log.debug('Updated offline status for users', { 
         count: usersToUpdate.length,
         userIds: usersToUpdate.map((u: SafeUser & { lastSeen: number }) => u.id)
       });
     }
-    
+
     // Sanitize user data using createSafeUser
-    const sanitizedUsers = processedUsers.map((user: SafeUser & { lastSeen: number }) => createSafeUser(user));
+    const sanitizedUsers = processedUsers.map(
+      (user: SafeUser & { lastSeen: number }) => createSafeUser(user)
+    );
 
     const responseData: PublicRoomResponse = {
       success: true,

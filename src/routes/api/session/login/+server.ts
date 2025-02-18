@@ -28,10 +28,11 @@ setInterval(() => {
     }
 }, 60 * 60 * 1000);
 
+// cf_clearance:"Qwq0fwt23w"
 // Helper to parse clearance cookie from headers
 function getClearanceCookie(cookieHeader: string | null): string | null {
     if (!cookieHeader) return null;
-    const match = cookieHeader.match(/cf-turnstile-clearance=([^;]+)/);
+    const match = cookieHeader.match(/cf-clearance=([^;]+)/);
     return match ? match[1] : null;
 }
 

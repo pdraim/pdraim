@@ -39,7 +39,7 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
       nickname: user.nickname,
       status: user.status,
       avatarUrl: user.avatarUrl,
-      lastSeen: user.lastSeen
+      lastSeen: user.lastSeen ?? 0
     };
     return safeUser;
   }
