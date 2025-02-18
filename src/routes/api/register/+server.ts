@@ -8,6 +8,7 @@ import { createLogger } from '$lib/utils/logger.server';
 import { eq } from 'drizzle-orm/sql';
 
 const log = createLogger('register-server');
+const isDev = process.env.NODE_ENV === 'development';
 
 // In-memory map to track failed captcha attempts per IP
 const captchaAttempts = new Map<string, { count: number, lastAttempt: number }>();
@@ -50,22 +51,23 @@ export const POST: RequestHandler = async ({ request }) => {
 		suPassword: string, 
 		suConfirmPassword: string, 
 		captchaAnswer: string,
-		turnstileToken: string 
+		turnstileToken?: string 
 	};
 
-	if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || !turnstileToken) {
+	if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || (!isDev && !turnstileToken)) {
 		log.warn('Missing required fields', { 
 			hasUsername: Boolean(suUsername),
 			hasPassword: Boolean(suPassword),
 			hasConfirmPassword: Boolean(suConfirmPassword),
 			hasCaptcha: Boolean(captchaAnswer),
-			hasTurnstileToken: Boolean(turnstileToken)
+			hasTurnstileToken: Boolean(turnstileToken),
+			isDev
 		});
 		return new Response(JSON.stringify({ error: 'All fields are required' } as RegisterResponseError), { status: 400 });
 	}
 
-	// Validate Turnstile token
-	const isValidTurnstile = await validateTurnstileToken(turnstileToken, ip);
+	// Validate Turnstile token (will be automatically bypassed in dev mode)
+	const isValidTurnstile = await validateTurnstileToken(turnstileToken || '', ip);
 	if (!isValidTurnstile) {
 		log.warn('Invalid Turnstile token', { maskedIp });
 		return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as RegisterResponseError), { status: 400 });

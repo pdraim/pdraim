@@ -11,6 +11,7 @@ import { createLogger } from '$lib/utils/logger.server';
 import { validateTurnstileToken } from '$lib/utils/turnstile.server';
 
 const log = createLogger('login-server');
+const isDev = process.env.NODE_ENV === 'development';
 
 // In-memory map to track failed login attempts per IP
 const loginAttempts = new Map<string, { count: number, lastAttempt: number }>();
@@ -75,7 +76,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
     const cookieHeader = request.headers.get('cookie');
     const clearanceCookie = getClearanceCookie(cookieHeader);
 
-    // Note: Mark turnstileToken as optional if a valid clearance cookie exists.
+    // Note: Mark turnstileToken as optional if a valid clearance cookie exists or in dev mode.
     const { username, password, turnstileToken } = body as {
         username: string;
         password: string;
@@ -85,12 +86,13 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
     if (
         typeof username !== 'string' ||
         typeof password !== 'string' ||
-        (!clearanceCookie && typeof turnstileToken !== 'string')
+        (!isDev && !clearanceCookie && typeof turnstileToken !== 'string')
     ) {
         log.warn('Missing or invalid input fields', {
             hasUsername: typeof username === 'string',
             hasPassword: typeof password === 'string',
-            hasTurnstileToken: typeof turnstileToken === 'string'
+            hasTurnstileToken: typeof turnstileToken === 'string',
+            isDev
         });
         return new Response(
             JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError),
@@ -98,9 +100,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         );
     }
 
-    // Check for clearance cookie before validating Turnstile token.
+    // Check for dev mode or clearance cookie before validating Turnstile token.
     let isValidTurnstile = false;
-    if (clearanceCookie) {
+    if (isDev) {
+        log.debug('Development mode: bypassing token challenge.');
+        isValidTurnstile = true;
+    } else if (clearanceCookie) {
         log.debug('Clearance cookie detected; bypassing token challenge.');
         isValidTurnstile = true;
     } else {

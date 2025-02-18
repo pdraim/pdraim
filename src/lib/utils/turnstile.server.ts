@@ -2,6 +2,7 @@ import { TURNSTILE_SECRET_KEY } from '$env/static/private';
 import { createLogger } from './logger.server';
 
 const log = createLogger('turnstile');
+const isDev = process.env.NODE_ENV === 'development';
 
 interface TurnstileVerifyResponse {
     "success": boolean;
@@ -13,6 +14,12 @@ interface TurnstileVerifyResponse {
 }
 
 export async function validateTurnstileToken(token: string, remoteip?: string): Promise<boolean> {
+    // Always return true in development mode
+    if (isDev) {
+        log.debug('Development mode: bypassing Turnstile validation');
+        return true;
+    }
+
     try {
         const formData = new FormData();
         formData.append('secret', TURNSTILE_SECRET_KEY);
