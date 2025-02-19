@@ -54,7 +54,7 @@ export async function createSession(token: string, userId: string): Promise<Sess
   log.debug("Creating session", { userId });
   const sessionId = await sha256(token);
   const createdAt = Date.now();
-  const expiresAt = createdAt + 24 * 60 * 60 * 1000; // 24 hours expiry
+  const expiresAt = createdAt + 7 * 24 * 60 * 60 * 1000; // 7 days expiry
   await db.insert(sessions).values({
     id: sessionId,
     userId,

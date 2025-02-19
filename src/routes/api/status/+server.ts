@@ -47,19 +47,23 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
             .get();
         log.debug('Database updated successfully', { userId: maskedUserId, status });
 
-        // Renew session if status is online
+        // Renew session if status is online and session expires in less than 1 day
         if (status === 'online') {
             const token = cookies.get('session');
             if (token) {
                 const result = await validateSessionToken(token);
                 if (result.session) {
-                    const newToken = generateSessionToken();
-                    const newSession = await createSession(newToken, userId);
-                    setSessionTokenCookie({ cookies }, newToken, newSession.expiresAt);
-                    log.info('Session renewed', { 
-                        userId: maskedUserId, 
-                        expiresAt: new Date(newSession.expiresAt).toISOString() 
-                    });
+                    const remaining = result.session.expiresAt - now;
+                    const threshold = 24 * 60 * 60 * 1000; // 1 day in milliseconds
+                    if (remaining < threshold) {
+                        const newToken = generateSessionToken();
+                        const newSession = await createSession(newToken, userId);
+                        setSessionTokenCookie({ cookies }, newToken, newSession.expiresAt);
+                        log.info('Session renewed', { 
+                            userId: maskedUserId, 
+                            expiresAt: new Date(newSession.expiresAt).toISOString() 
+                        });
+                    }
                 }
             }
         }
