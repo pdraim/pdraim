@@ -5,9 +5,10 @@
     import type { User, SafeUser } from '$lib/types/chat';
     import { invalidateAll } from '$app/navigation';
     import { chatState } from '$lib/states/chat.svelte';
-    import Turnstile from './turnstile.svelte';
     import { createSafeUser } from '$lib/types/chat';
     import { onMount } from 'svelte';
+    import PasswordStrengthIndicator from './password-strength-indicator.svelte';
+    import { loginSchema, createRegistrationSchema, validatePasswordStrength, DEFAULT_PASSWORD_CONSTRAINTS, type PasswordConstraints } from '../validation/password';
     
     interface $$Props {
         showAuth: boolean;
@@ -24,7 +25,6 @@
     let siPassword = $state('');
     let error = $state('');
     let loginStatus = $state('idle');
-    let siTurnstileToken = $state('');
   
     // Sign Up state
     let suUsername = $state('');
@@ -34,6 +34,10 @@
     let signupError = $state('');
     let signupStatus = $state('idle');
     let suTurnstileToken = $state('');
+
+    // Password validation state
+    let passwordConstraints: PasswordConstraints = DEFAULT_PASSWORD_CONSTRAINTS;
+    let showPasswordStrength = $state(false);
 
     // Added dragging state and handler similar to chat-room
     let windowX = $state(0);
@@ -60,8 +64,11 @@
     async function handleSigninSubmit() {
         error = '';
         loginStatus = 'loading';
-        if (!siUsername || !siPassword || !siTurnstileToken) {
-            error = 'Please complete all fields including the security check';
+        
+        // Validate login data
+        const validationError = validateLoginData();
+        if (validationError) {
+            error = validationError;
             loginStatus = 'error';
             return;
         }
@@ -73,8 +80,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     username: siUsername, 
-                    password: siPassword,
-                    turnstileToken: siTurnstileToken
+                    password: siPassword
                 })
             });
 
@@ -107,41 +113,30 @@
         }
     }
 
-    // New: Create a helper function for client-side validations based on server rules.
-    function validateSignupData(): string | null {
-        // Trim values
-        const username = suUsername.trim();
-        const password = suPassword.trim();
-        const confirmPasswordValue = suConfirmPassword.trim();
-
-        if (!username || !password || !confirmPasswordValue) {
-            return 'All fields must be filled';
+    // Validation using Zod schemas
+    function validateLoginData() {
+        try {
+            loginSchema.parse({ username: siUsername.trim(), password: siPassword.trim() });
+            return null;
+        } catch (err: any) {
+            return err.errors?.[0]?.message || 'Invalid input';
         }
+    }
 
-        if (username.length < 3) {
-            return 'Username must be at least 3 characters';
+    function validateSignupData() {
+        try {
+            const registrationSchema = createRegistrationSchema(passwordConstraints);
+            registrationSchema.parse({
+                suUsername: suUsername.trim(),
+                suPassword: suPassword.trim(),
+                suConfirmPassword: suConfirmPassword.trim(),
+                captchaAnswer: captchaAnswer.trim(),
+                turnstileToken: suTurnstileToken
+            });
+            return null;
+        } catch (err: any) {
+            return err.errors?.[0]?.message || 'Invalid input';
         }
-
-        if (username.length > 32) {
-            return 'Username must be at most 32 characters';
-        }
-
-        // Only allow letters, numbers, underscores, and dashes in the username.
-        const usernameRegex = /^[a-zA-Z0-9_-]+$/;
-        if (!usernameRegex.test(username)) {
-            return 'Invalid username. Only letters, numbers, underscores, and dashes are allowed.';
-        }
-
-        if (password !== confirmPasswordValue) {
-            return 'Passwords do not match';
-        }
-
-        if (password.length < 8 || password.length > 64) {
-            return 'Password must be between 8 and 64 characters';
-        }
-
-        // All checks passed.
-        return null;
     }
 
     async function handleSignupSubmit() {
@@ -156,10 +151,9 @@
             return;
         }
 
-        // Additional check for captcha and Turnstile token,
-        // in case those fields are not filled.
-        if (!captchaAnswer || !suTurnstileToken) {
-            signupError = 'Please complete all fields including the security check';
+        // Additional check for captcha
+        if (!captchaAnswer) {
+            signupError = 'Please complete all fields including the PDR question';
             signupStatus = 'error';
             return;
         }
@@ -271,7 +265,6 @@
                     <label for="si-password">Mot de passe</label>
                     <input type="password" id="si-password" bind:value={siPassword} placeholder="Mot de passe" />
                 </div>
-                <Turnstile onVerify={(token: string) => siTurnstileToken = token} />
                 {#if error}
                     <div class="error">{error}</div>
                 {/if}
@@ -311,7 +304,20 @@
                 </div>
                 <div class="form-group">
                     <label for="su-password">Mot de passe</label>
-                    <input type="password" id="su-password" bind:value={suPassword} placeholder="Mot de passe" />
+                    <input 
+                        type="password" 
+                        id="su-password" 
+                        bind:value={suPassword} 
+                        placeholder="Mot de passe"
+                        onfocus={() => showPasswordStrength = true}
+                    />
+                    {#if showPasswordStrength}
+                        <PasswordStrengthIndicator 
+                            password={suPassword} 
+                            constraints={passwordConstraints} 
+                            showDetails={true} 
+                        />
+                    {/if}
                 </div>
                 <div class="form-group">
                     <label for="su-confirm-password">Confirmer le mot de passe</label>
@@ -321,7 +327,6 @@
                     <label for="captcha">Quelle est la signification de PDR ?</label>
                     <input type="text" id="captcha" bind:value={captchaAnswer} placeholder="Entrez votre réponse" />
                 </div>
-                <Turnstile onVerify={(token: string) => suTurnstileToken = token} />
                 {#if signupError}
                     <div class="error">{signupError}</div>
                 {/if}

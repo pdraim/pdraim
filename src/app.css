@@ -2,4 +2,449 @@
 @import 'tailwindcss/components';
 @import 'tailwindcss/utilities';
 @import 'xp.css';
+@import './lib/styles/fonts.css';
+
+/* Local font faces with 30-day cache */
+@font-face {
+  font-family: 'Arial';
+  src: url('/fonts/Arial.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Arial';
+  src: url('/fonts/Arialbd.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Arial';
+  src: url('/fonts/Ariali.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Arial';
+  src: url('/fonts/Arialbi.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Tahoma';
+  src: url('/fonts/tahoma.ttf') format('truetype');
+  font-display: swap;
+  font-weight: 80;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Tahoma';
+  src: url('/fonts/tahomabd.ttf') format('truetype');
+  font-display: swap;
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Verdana';
+  src: url('/fonts/Verdana.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Verdana';
+  src: url('/fonts/Verdanab.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Verdana';
+  src: url('/fonts/Verdanai.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Verdana';
+  src: url('/fonts/Verdanaz.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Comic Sans MS';
+  src: url('/fonts/Comic.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Comic Sans MS';
+  src: url('/fonts/Comicbd.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Times New Roman';
+  src: url('/fonts/Times.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Times New Roman';
+  src: url('/fonts/Timesbd.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Times New Roman';
+  src: url('/fonts/Timesi.TTF') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Times New Roman';
+  src: url('/fonts/Timesbi.TTF') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Courier New';
+  src: url('/fonts/LiberationMono-Regular.ttf') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Courier New';
+  src: url('/fonts/LiberationMono-Bold.ttf') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Courier New';
+  src: url('/fonts/LiberationMono-Italic.ttf') format('truetype');
+  font-display: swap;
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Courier New';
+  src: url('/fonts/LiberationMono-BoldItalic.ttf') format('truetype');
+  font-display: swap;
+  font-weight: bold;
+  font-style: italic;
+}
+
+/* ===== RETRO FONT STYLING ===== */
+/* Retro Windows fonts with proper fallbacks */
+.retro-font-pixelated {
+  font-family: "Pixelated MS Sans Serif", "Tahoma", Geneva, sans-serif;
+}
+
+.retro-font-tahoma { 
+  font-family: Tahoma, "Pixelated MS Sans Serif", Geneva, sans-serif; 
+}
+
+.retro-font-verdana { 
+  font-family: Verdana, "Pixelated MS Sans Serif", Geneva, sans-serif; 
+}
+
+.retro-font-comicSans { 
+  font-family: "Comic Sans MS", "Pixelated MS Sans Serif", cursive, sans-serif; 
+}
+
+.retro-font-timesNewRoman { 
+  font-family: "Times New Roman", Times, serif; 
+}
+
+.retro-font-arial { 
+  font-family: Arial, "Pixelated MS Sans Serif", Helvetica, sans-serif; 
+}
+
+.retro-font-courierNew { 
+  font-family: "Courier New", "Perfect DOS VGA 437 Win", Courier, monospace; 
+}
+
+.retro-font-dos {
+  font-family: "Perfect DOS VGA 437 Win", "Courier New", Courier, monospace;
+}
+
+/* ===== GRADIENT TEXT EFFECTS ===== */
+.gradient-text {
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 3s ease infinite;
+}
+
+.gradient-text-static {
+  /* Remove text-fill-color to allow inline color styles to work */
+  /* Individual spans will have their own colors set inline */
+  letter-spacing: normal;
+  word-spacing: normal;
+}
+
+/* Gradient text container uses flexbox */
+.gradient-text-static {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  align-items: baseline !important;
+}
+
+/* Ensure gradient character spans don't add spacing */
+.gradient-text-static > span {
+  display: inline !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  letter-spacing: 0 !important;
+  line-height: inherit !important;
+  font-size: inherit !important;
+}
+
+/* Ensure gradient character colors from inline styles are respected */
+.gradient-text-static .gradient-char {
+  -webkit-text-fill-color: initial !important;
+}
+
+/* Gradient text in input fields - preserve normal input background */
+input[style*="background-clip: text"] {
+  /* Keep default input background while allowing gradient text */
+}
+
+/* Gradient animation for AOL-style effects */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Specific gradient presets */
+.gradient-rainbow {
+  background: linear-gradient(45deg, 
+    #FF0000, #FF8000, #FFFF00, #80FF00, #00FF00, #00FF80, 
+    #00FFFF, #0080FF, #0000FF, #8000FF, #FF00FF, #FF0080);
+}
+
+.gradient-fire {
+  background: linear-gradient(45deg, #FF0000, #FF4000, #FF8000, #FFBF00, #FFFF00);
+}
+
+.gradient-ocean {
+  background: linear-gradient(45deg, #000080, #0040FF, #0080FF, #00BFFF, #00FFFF);
+}
+
+.gradient-sunset {
+  background: linear-gradient(45deg, #FF4500, #FF6347, #FFD700, #FFFF00);
+}
+
+.gradient-neon {
+  background: linear-gradient(45deg, #FF00FF, #8000FF, #0080FF, #00FFFF);
+}
+
+.gradient-forest {
+  background: linear-gradient(45deg, #006400, #228B22, #32CD32, #90EE90);
+}
+
+.gradient-royal {
+  background: linear-gradient(45deg, #4B0082, #6A5ACD, #9370DB, #DDA0DD);
+}
+
+/* ===== CHAT MESSAGE FORMATTING ===== */
+.formatted-message {
+  word-break: break-word;
+  line-height: 1.4;
+  max-width: 100%;
+}
+
+.formatted-message strong {
+  font-weight: bold;
+}
+
+.formatted-message em {
+  font-style: italic;
+}
+
+.formatted-message u {
+  text-decoration: underline;
+}
+
+.formatted-message s {
+  text-decoration: line-through;
+}
+
+.formatted-message code {
+  background: #f0f0f0;
+  padding: 1px 3px;
+  border-radius: 2px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+}
+
+/* ===== INPUT STYLING FIXES ===== */
+/* Fix letter spacing issues with gradient text in inputs */
+input[style*="background-clip: text"] {
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+}
+
+/* Ensure gradient inputs don't have extra padding */
+input.styled-input {
+  letter-spacing: 0;
+  word-spacing: 0;
+}
+
+/* Ensure proper font weights are used */
+.retro-font-tahoma {
+  font-weight: 80;
+}
+
+/* ===== TEXT STYLE SELECTOR STYLING ===== */
+.text-formatting-toolbar {
+  background: #f0f0f0;
+  border: 2px inset #dfdfdf;
+  padding: 4px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.formatting-button {
+  width: 24px;
+  height: 24px;
+  border: 1px outset #dfdfdf;
+  background: #f0f0f0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  transition: all 0.1s ease;
+}
+
+.formatting-button:hover {
+  background: #e0e0e0;
+}
+
+.formatting-button:active,
+.formatting-button.active {
+  border: 1px inset #dfdfdf;
+  background: #d0d0d0;
+}
+
+.font-selector {
+  padding: 2px 4px;
+  border: 1px inset #dfdfdf;
+  background: white;
+  font-size: 11px;
+  min-width: 80px;
+}
+
+.size-slider {
+  width: 60px;
+}
+
+.color-indicator {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #000;
+  cursor: pointer;
+  display: inline-block;
+}
+
+/* ===== ACCESSIBILITY IMPROVEMENTS ===== */
+@media (prefers-reduced-motion: reduce) {
+  .gradient-text {
+    animation: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .gradient-text {
+    -webkit-text-fill-color: unset;
+    background: none;
+    color: inherit;
+  }
+  
+  .gradient-text-static {
+    -webkit-text-fill-color: unset;
+    background: none;
+    color: inherit;
+  }
+}
+
+/* ===== RETRO STYLING ENHANCEMENTS ===== */
+.retro-message {
+  font-family: inherit;
+  line-height: 1.3;
+  word-wrap: break-word;
+}
+
+.retro-message.style-bold {
+  font-weight: bold;
+}
+
+.retro-message.style-italic {
+  font-style: italic;
+}
+
+.retro-message.style-underline {
+  text-decoration: underline;
+}
+
+.retro-message.style-strikethrough {
+  text-decoration: line-through;
+}
+
+.retro-message.style-underline.style-strikethrough {
+  text-decoration: underline line-through;
+}
+
+/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+.gradient-text,
+.gradient-text-static {
+  will-change: background-position;
+  contain: layout style paint;
+}
+
+/* Limit gradient text length for performance */
+.gradient-text-long {
+  max-width: 500px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 

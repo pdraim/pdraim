@@ -11,7 +11,13 @@ import LoadingButton from './ui/button-loading.svelte';
 import Tooltip from './ui/tooltip.svelte';
 import LoadingDots from './ui/loading-dots.svelte';
 import AimLogin from './aim-login.svelte';
+import FormattedMessage from './formatted-message.svelte';
+import TextFormattingToolbar from './text-formatting-toolbar.svelte';
+import { DEFAULT_TEXT_STYLE, type TextStyle, generateInputCSSStyle } from '../types/text-formatting';
 import { formatFrenchDateTime, formatFrenchRelativeTimeSafe } from '$lib/utils/date-format';
+
+// Props destructuring must come first
+let { showChatRoom = $bindable(), initialTextStyle = DEFAULT_TEXT_STYLE } = $props();
 
 // Initialize with default values for SSR
 let windowWidth = $state(400);
@@ -25,6 +31,14 @@ let isMaximized = $state(false);
 let isInitialLoading = $state(true);
 let showAuth = $state(false);
 let isMinimized = $state(false);
+
+// Text formatting state - initialize directly with merged initial style
+let currentTextStyle = $state<TextStyle>({ 
+  ...DEFAULT_TEXT_STYLE,
+  ...initialTextStyle,
+  color: initialTextStyle.color || '#000000' // Ensure we always have a valid color
+});
+let showFormattingToolbar = $state(true);
 
 // Rate limiting state
 let cooldownEndTime = $state<number | null>(null);
@@ -59,8 +73,6 @@ function startCooldownTimer(retryAfter: number) {
   cooldownInterval = setInterval(updateCooldownProgress, 100);
   updateCooldownProgress();
 }
-
-let { showChatRoom = $bindable() } = $props();
 
 function handleClose() {
   showChatRoom = false;
@@ -239,7 +251,7 @@ async function handleSubmit() {
   
   isSendingMessage = true;
   try {
-    const response = await chatState.sendMessage(currentMessage);
+    const response = await chatState.sendMessage(currentMessage, 'chat', currentTextStyle);
     if (!response.success && response.isRateLimited && response.retryAfter) {
       startCooldownTimer(response.retryAfter);
       rateLimitWarning = 'Whoa there! You\'re sending messages too quickly. Take a breather...';
@@ -459,7 +471,7 @@ function handleLoginSuccess() {
   ondragmove={handleDragMove}
 >
   <div class="title-bar">
-    <div class="title-bar-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+    <div class="title-bar-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'MS Sans Serif', 'Pixelated MS Sans Serif', sans-serif;">
       Pdr Aim {#if currentUser} - {currentUser.nickname}{:else} - {totalUsers} membre{totalUsers > 1 ? 's' : ''}{/if}
       {#if sseError && !isMinimized}
         <span class="connection-error">⚠️ Erreur de connexion</span>
@@ -563,21 +575,49 @@ function handleLoginSuccess() {
                 }}>
                   <span class="nickname pointer-events-none">{message.user.nickname}:</span>
                 </Tooltip>
-                <span class="content">{message.content}</span>
+                <FormattedMessage {message} allowFormatting={true} />
               {/if}
             </div>
           {/each}
         </div>
         
+        <!-- Text Formatting Toolbar -->
+        {#if currentUser}
+          <div style="margin-bottom: 0.25rem;">
+            <TextFormattingToolbar 
+              bind:style={currentTextStyle}
+              compact={true}
+              showFontSelector={true}
+              showGradients={true}
+            />
+          </div>
+        {/if}
+        
+        
         <div class="field-row input-container" style="margin: 0;">
-          <input 
-            type="text" 
-            bind:value={currentMessage}
-            style="flex: 1;"
-            onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
-            placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
-            disabled={!currentUser || Boolean(cooldownEndTime)}
-          />
+          {#if currentTextStyle.gradient && currentTextStyle.gradient.length > 1}
+            <div class="gradient-input-wrapper" style="flex: 1; position: relative; background: white;">
+              <input 
+                type="text" 
+                bind:value={currentMessage}
+                class="styled-input retro-font-{currentTextStyle.fontFamily}"
+                style="width: 100%; background: transparent; {generateInputCSSStyle(currentTextStyle)}"
+                onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
+                placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
+                disabled={!currentUser || Boolean(cooldownEndTime)}
+              />
+            </div>
+          {:else}
+            <input 
+              type="text" 
+              bind:value={currentMessage}
+              class="styled-input retro-font-{currentTextStyle.fontFamily}"
+              style="flex: 1; {generateInputCSSStyle(currentTextStyle)}"
+              onkeydown={(e) => e.key === 'Enter' && handleSubmit()}
+              placeholder={cooldownEndTime ? `Patientez ${cooldownProgress.toFixed(1)}s...` : "Écrivez un message..."}
+              disabled={!currentUser || Boolean(cooldownEndTime)}
+            />
+          {/if}
           <LoadingButton 
             onclick={handleSubmit} 
             disabled={!currentUser || Boolean(cooldownEndTime)} 
@@ -632,9 +672,14 @@ function handleLoginSuccess() {
 {/if}
 
 <style>
-  .chat-area, .users-list, input {
+  .chat-area, .users-list {
     font-size: 1rem;
-    font-family: Arial, Verdana, Tahoma, sans-serif;
+    font-family: "Pixelated MS Sans Serif", Arial, Verdana, Tahoma, sans-serif;
+  }
+  
+  input:not(.styled-input) {
+    font-size: 1rem;
+    font-family: "Pixelated MS Sans Serif", Arial, Verdana, Tahoma, sans-serif;
   }
   
   .title-bar {
@@ -673,6 +718,16 @@ function handleLoginSuccess() {
     display: flex;
     gap: 0.5rem;
     align-items: flex-start;
+  }
+  
+  /* Fix gradient text spacing in messages */
+  .message :global(.gradient-text-static) {
+    letter-spacing: normal !important;
+    word-spacing: normal !important;
+  }
+  
+  .message :global(.gradient-text-static span) {
+    letter-spacing: 0 !important;
   }
 
   .message .nickname {
@@ -1036,4 +1091,16 @@ function handleLoginSuccess() {
   .pointer-events-none {
     pointer-events: none;
   }
+  
+  .gradient-input-wrapper {
+    border: 1px inset #dfdfdf;
+    padding: 2px;
+  }
+  
+  .gradient-input-wrapper input {
+    border: none !important;
+    outline: none !important;
+    padding: 1px 3px;
+  }
+
 </style>
