@@ -47,6 +47,23 @@ export const messages = table(
     content: t.text("content").notNull(),
     type: t.text("type").$type<MessageType>().notNull().default("chat"),
     timestamp: t.integer("timestamp").notNull(),
+    styleData: t.text("style_data"), // JSON string of TextStyle object
+    hasFormatting: t.integer("has_formatting", { mode: "boolean" }).default(false), // Boolean flag
+  }
+);
+
+export const userTextPreferences = table(
+  "user_text_preferences",
+  {
+    userId: t.text("user_id").references(() => users.id).primaryKey(),
+    defaultFontFamily: t.text("default_font_family").default("tahoma"),
+    defaultFontSize: t.integer("default_font_size").default(14),
+    defaultColor: t.text("default_color").default("black"),
+    allowFormatting: t.integer("allow_formatting", { mode: "boolean" }).default(true),
+    maxMessageLength: t.integer("max_message_length").default(500),
+    stylePresets: t.text("style_presets"), // JSON array of saved styles
+    createdAt: t.integer("created_at").notNull(),
+    updatedAt: t.integer("updated_at").notNull(),
   }
 );
 
@@ -55,6 +72,7 @@ export type Users = typeof users.$inferSelect;
 export type ChatRooms = typeof chatRooms.$inferSelect;
 export type Messages = typeof messages.$inferSelect;
 export type Sessions = typeof sessions.$inferSelect;
+export type UserTextPreferences = typeof userTextPreferences.$inferSelect;
 // These type assertions will fail if the schema doesn't match the interfaces
 export type _UsersValidation = Omit<User, keyof Users> & Omit<Users, keyof User>;
 export type _ChatRoomsValidation = Omit<ChatRoom, keyof ChatRooms> & Omit<ChatRooms, keyof ChatRoom>;
@@ -100,6 +118,7 @@ const schema = {
     sessions,
     chatRooms,
     messages,
+    userTextPreferences,
     userView,
     chatRoomView,
     messageView

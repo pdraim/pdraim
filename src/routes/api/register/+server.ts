@@ -3,7 +3,7 @@ import type { RegisterResponseSuccess, RegisterResponseError } from '$lib/types/
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
 import { hashPassword } from '$lib/utils/password';
-import { validateTurnstileToken } from '$lib/utils/turnstile.server';
+import { createRegistrationSchema, DEFAULT_PASSWORD_CONSTRAINTS } from '$lib/validation/password';
 import { createLogger } from '$lib/utils/logger.server';
 import { eq } from 'drizzle-orm/sql';
 
@@ -54,24 +54,22 @@ export const POST: RequestHandler = async ({ request }) => {
 		turnstileToken?: string 
 	};
 
-	if (!suUsername || !suPassword || !suConfirmPassword || !captchaAnswer || (!isDev && !turnstileToken)) {
-		log.warn('Missing required fields', { 
-			hasUsername: Boolean(suUsername),
-			hasPassword: Boolean(suPassword),
-			hasConfirmPassword: Boolean(suConfirmPassword),
-			hasCaptcha: Boolean(captchaAnswer),
-			hasTurnstileToken: Boolean(turnstileToken),
-			isDev
+	// Validate input using Zod schema
+	try {
+		const registrationSchema = createRegistrationSchema(DEFAULT_PASSWORD_CONSTRAINTS);
+		registrationSchema.parse({
+			suUsername,
+			suPassword,
+			suConfirmPassword,
+			captchaAnswer,
+			turnstileToken
 		});
-		return new Response(JSON.stringify({ error: 'All fields are required' } as RegisterResponseError), { status: 400 });
+	} catch (err: any) {
+		const errorMessage = err.errors?.[0]?.message || 'Invalid input data';
+		log.warn('Registration validation failed', { error: errorMessage });
+		return new Response(JSON.stringify({ error: errorMessage } as RegisterResponseError), { status: 400 });
 	}
 
-	// Validate Turnstile token (will be automatically bypassed in dev mode)
-	const isValidTurnstile = await validateTurnstileToken(turnstileToken || '', ip);
-	if (!isValidTurnstile) {
-		log.warn('Invalid Turnstile token', { maskedIp });
-		return new Response(JSON.stringify({ error: 'Security check failed. Please try again.' } as RegisterResponseError), { status: 400 });
-	}
 
 	// Validate PDR captcha
 	const normalizedAnswer = captchaAnswer.trim().toLowerCase();
@@ -86,49 +84,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Reset captcha attempts on success
 	captchaAttempts.delete(ip);
 
-	// Destructure and validate required fields from the payload.
-	if (typeof suUsername !== 'string' || typeof suPassword !== 'string' ||
-	    typeof suConfirmPassword !== 'string') {
-		log.warn('Missing or invalid input fields');
-		return new Response(JSON.stringify({ error: 'Missing or invalid input fields' } as RegisterResponseError), { status: 400 });
-	}
-
-	// Trim input values.
+	// Trim input values (validation already done by Zod)
 	const username = suUsername.trim();
 	const password = suPassword.trim();
-	const confirmPassword = suConfirmPassword.trim();
-
-	// Basic validations.
-	if (!username || !password || !confirmPassword) {
-		log.warn('All fields must be filled');
-		return new Response(JSON.stringify({ error: 'All fields must be filled' } as RegisterResponseError), { status: 400 });
-	}
-
-	if (username.length < 3) {
-		log.warn('Username must be at least 3 characters');
-		return new Response(JSON.stringify({ error: 'Username must be at least 3 characters' } as RegisterResponseError), { status: 400 });
-	}
-
-	if (username.length > 32) {
-		log.warn('Username must be at most 32 characters');
-		return new Response(JSON.stringify({ error: 'Username must be at most 32 characters' } as RegisterResponseError), { status: 400 });
-	}
-	// Only allow letters, numbers, underscores, and dashes in the username.
-	const usernameRegex = /^[a-zA-Z0-9_-]+$/;
-	if (!usernameRegex.test(username)) {
-		log.warn('Invalid username. Only letters, numbers, underscores, and dashes are allowed.');
-		return new Response(JSON.stringify({ error: 'Invalid username. Only letters, numbers, underscores, and dashes are allowed.' } as RegisterResponseError), { status: 400 });
-	}
-
-	if (password !== confirmPassword) {
-		log.warn('Passwords do not match');
-		return new Response(JSON.stringify({ error: 'Passwords do not match' } as RegisterResponseError), { status: 400 });
-	}
-
-	if (password.length < 8 || password.length > 64) {
-		log.warn('Password must be between 8 and 64 characters');
-		return new Response(JSON.stringify({ error: 'Password must be between 8 and 64 characters' } as RegisterResponseError), { status: 400 });
-	}
 
 	// Check if nickname already exists
 	const existingUser = await db.select().from(users).where(eq(users.nickname, username));

@@ -8,9 +8,11 @@ import type { RequestHandler } from './$types';
 import { sseEmitter } from '$lib/sseEmitter';
 import db from '$lib/db/db.server';
 import { users } from '$lib/db/schema';
-import { eq, and, lt } from 'drizzle-orm';
+import { eq, and, lt, ne } from 'drizzle-orm';
 import { createSafeUser } from '$lib/types/chat';
 import { createLogger } from '$lib/utils/logger.server';
+import { sseConnectionTracker } from '$lib/sseConnectionTracker';
+import { buddyListCache } from '$lib/buddyListCache';
 
 const log = createLogger('sse-server');
 
@@ -52,7 +54,7 @@ function startTimeoutCheck() {
                 })
                 .where(
                     and(
-                        eq(users.status, 'online'), // Only update online users
+                        ne(users.status, 'offline'), // Update any non-offline users
                         lt(users.lastSeen, timeoutThreshold) // Who haven't been seen recently
                     )
                 )
@@ -67,6 +69,9 @@ function startTimeoutCheck() {
                     usersUpdated: result.length,
                     timeoutThreshold: new Date(timeoutThreshold).toISOString()
                 });
+                
+                // Invalidate buddy list cache when users timeout
+                buddyListCache.invalidate();
             }
         } catch (error) {
             log.error('Error during timeout check', { error });
@@ -84,19 +89,35 @@ function startBuddyListUpdateInterval() {
             const now = Date.now();
             // Only fetch and broadcast if 10 seconds have passed since last update
             if (now - lastBuddyListUpdate >= BUDDY_LIST_BROADCAST_INTERVAL) {
-                log.debug('Broadcasting buddy list update...');
-                // Query the complete buddy list from the database.
-                const buddyList = await db.select().from(users);
-                // Use createSafeUser to properly sanitize user data
-                const safeBuddyList = buddyList.map(user => createSafeUser(user));
-                
-                // Only broadcast if data has changed
-                if (JSON.stringify(safeBuddyList) !== JSON.stringify(lastBuddyListData)) {
-                    lastBuddyListData = safeBuddyList;
-                    sseEmitter.emit('sse', {
-                        type: 'buddyListUpdate',
-                        data: safeBuddyList
-                    });
+                // Only query database if cache is invalid or doesn't exist
+                if (buddyListCache.needsRefresh()) {
+                    log.debug('Fetching buddy list from database (cache miss)...');
+                    // Query the complete buddy list from the database.
+                    const buddyList = await db.select().from(users);
+                    // Use createSafeUser to properly sanitize user data
+                    const safeBuddyList = buddyList.map(user => createSafeUser(user));
+                    
+                    // Update cache and check if data changed
+                    const hasChanged = buddyListCache.update(safeBuddyList);
+                    
+                    if (hasChanged) {
+                        log.debug('Broadcasting buddy list update (data changed)...');
+                        sseEmitter.emit('sse', {
+                            type: 'buddyListUpdate',
+                            data: safeBuddyList
+                        });
+                    }
+                } else {
+                    // Use cached data
+                    const cachedData = buddyListCache.get();
+                    if (cachedData && JSON.stringify(cachedData) !== JSON.stringify(lastBuddyListData)) {
+                        log.debug('Broadcasting buddy list update from cache...');
+                        lastBuddyListData = cachedData;
+                        sseEmitter.emit('sse', {
+                            type: 'buddyListUpdate',
+                            data: cachedData
+                        });
+                    }
                 }
                 lastBuddyListUpdate = now;
             }
@@ -106,10 +127,38 @@ function startBuddyListUpdateInterval() {
     }, 1000); // Check every second but only broadcast every 10 seconds
 }
 
+// Add periodic cleanup for stale connections
+let connectionCleanupInterval: ReturnType<typeof setInterval>;
+
+function startConnectionCleanup() {
+    if (connectionCleanupInterval) {
+        clearInterval(connectionCleanupInterval);
+    }
+    
+    connectionCleanupInterval = setInterval(() => {
+        const staleUserIds = sseConnectionTracker.cleanupStaleConnections();
+        if (staleUserIds.length > 0) {
+            // Mark stale connections as offline
+            staleUserIds.forEach(async (userId) => {
+                try {
+                    await db.update(users)
+                        .set({ status: 'offline', lastSeen: Date.now() })
+                        .where(eq(users.id, userId));
+                    
+                    buddyListCache.invalidate();
+                } catch (error) {
+                    log.error('Error updating stale user status', { userId, error });
+                }
+            });
+        }
+    }, 60000); // Run every minute
+}
+
 // <<< NEW: Ensure intervals are started only once >>>
 if (!globalThis.__sseIntervalsStarted) {
     startTimeoutCheck();
     startBuddyListUpdateInterval();
+    startConnectionCleanup();
     globalThis.__sseIntervalsStarted = true;
     log.info('Started global intervals for timeout and buddy list updates');
 } else {
@@ -121,18 +170,21 @@ if (typeof process !== 'undefined') {
     process.on('beforeExit', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
         if (buddyListInterval) clearInterval(buddyListInterval);
+        if (connectionCleanupInterval) clearInterval(connectionCleanupInterval);
     });
     
     // Also handle SIGTERM and SIGINT
     process.on('SIGTERM', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
         if (buddyListInterval) clearInterval(buddyListInterval);
+        if (connectionCleanupInterval) clearInterval(connectionCleanupInterval);
         process.exit(0);
     });
     
     process.on('SIGINT', () => {
         if (timeoutInterval) clearInterval(timeoutInterval);
         if (buddyListInterval) clearInterval(buddyListInterval);
+        if (connectionCleanupInterval) clearInterval(connectionCleanupInterval);
         process.exit(0);
     });
 }
@@ -160,29 +212,42 @@ export const GET: RequestHandler = async ({ request, locals,  }) => {
 
     const now = Date.now();
     
-    try {
-        await db.update(users)
-            .set({ 
-                status: 'online',
-                lastSeen: now 
-            })
-            .where(eq(users.id, userId));
+    // Only update status if this is a new connection
+    const isNewConnection = sseConnectionTracker.addConnection(userId);
+    
+    if (isNewConnection) {
+        try {
+            await db.update(users)
+                .set({ 
+                    status: 'online',
+                    lastSeen: now 
+                })
+                .where(eq(users.id, userId));
 
-        log.info('User status updated to online', {
-            userId: `${userId.slice(0, 4)}...${userId.slice(-4)}`,
-            timestamp: new Date(now).toISOString()
-        });
+            log.info('User status updated to online', {
+                userId: `${userId.slice(0, 4)}...${userId.slice(-4)}`,
+                timestamp: new Date(now).toISOString()
+            });
 
-        sseEmitter.emit('sse', {
-            type: 'userStatusUpdate',
-            data: {
-                userId,
-                status: 'online',
-                lastSeen: now
-            }
+            // Invalidate buddy list cache when user status changes
+            buddyListCache.invalidate();
+
+            sseEmitter.emit('sse', {
+                type: 'userStatusUpdate',
+                data: {
+                    userId,
+                    status: 'online',
+                    lastSeen: now
+                }
+            });
+        } catch (error) {
+            log.error('Error updating user status', { error });
+            sseConnectionTracker.removeConnection(userId);
+        }
+    } else {
+        log.debug('User already has active SSE connection, skipping status update', {
+            userId: `${userId.slice(0, 4)}...${userId.slice(-4)}`
         });
-    } catch (error) {
-        log.error('Error updating user status', { error });
     }
 
     const stream = new ReadableStream({
@@ -225,19 +290,28 @@ export const GET: RequestHandler = async ({ request, locals,  }) => {
             const maskedUserId = `${userId.slice(0, 4)}...${userId.slice(-4)}`;
             log.info('Connection closed', { userId: maskedUserId, reason });
 
-            const now = Date.now();
-            await db.update(users)
-                .set({ status: 'offline', lastSeen: now })
-                .where(eq(users.id, userId));
+            // Remove from connection tracker
+            const wasTracked = sseConnectionTracker.removeConnection(userId);
             
-            sseEmitter.emit('sse', { 
-                type: 'userStatusUpdate', 
-                data: { 
-                    userId, 
-                    status: 'offline', 
-                    lastSeen: now 
-                } 
-            });
+            // Only update database if this was the last connection
+            if (wasTracked && !sseConnectionTracker.hasConnection(userId)) {
+                const now = Date.now();
+                await db.update(users)
+                    .set({ status: 'offline', lastSeen: now })
+                    .where(eq(users.id, userId));
+                
+                // Invalidate buddy list cache when user goes offline
+                buddyListCache.invalidate();
+                
+                sseEmitter.emit('sse', { 
+                    type: 'userStatusUpdate', 
+                    data: { 
+                        userId, 
+                        status: 'offline', 
+                        lastSeen: now 
+                    } 
+                });
+            }
         }
     });
 

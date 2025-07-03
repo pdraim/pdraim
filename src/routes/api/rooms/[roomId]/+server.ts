@@ -40,7 +40,7 @@ export async function GET({ params, url, locals }): Promise<Response> {
     // Process users to mark them as offline if they've timed out
     const processedUsers = normalizedUsers.map(
       (user: SafeUser & { lastSeen: number }) => {
-        const shouldBeOffline = user.status === 'online' && user.lastSeen < timeoutThreshold;
+        const shouldBeOffline = user.status !== 'offline' && user.lastSeen < timeoutThreshold;
         return {
           ...user,
           status: shouldBeOffline ? 'offline' : user.status
@@ -48,13 +48,13 @@ export async function GET({ params, url, locals }): Promise<Response> {
       }
     );
 
-    // Find users who were originally online but now marked offline
+    // Find users who were originally non-offline but now marked offline
     const usersToUpdate = processedUsers.filter(
       (user: SafeUser & { lastSeen: number }) =>
         user.status === 'offline' &&
         normalizedUsers.find(
           (u: SafeUser & { lastSeen: number }) => u.id === user.id
-        )?.status === 'online'
+        )?.status !== 'offline'
     );
 
     if (usersToUpdate.length > 0) {

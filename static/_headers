@@ -1,0 +1,18 @@
+# Cache configuration for static assets
+
+# Font files - cache for 1 year (31536000 seconds)
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+
+# General static assets - cache for 1 month (2592000 seconds)
+/favicon.png
+  Cache-Control: public, max-age=2592000
+
+# Icons and images - cache for 1 month
+/aim/*
+  Cache-Control: public, max-age=2592000
+
+/desktop/*
+  Cache-Control: public, max-age=2592000
