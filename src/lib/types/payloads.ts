@@ -44,6 +44,7 @@ export interface SendMessageRequest {
     type?: Message['type'];
     userId: string;
     chatRoomId?: string;
+    styleData?: string; // JSON stringified TextStyle
 }
 
 export interface SendMessageResponseSuccess {

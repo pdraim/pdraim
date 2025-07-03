@@ -8,10 +8,10 @@ import { generateSessionToken, createSession } from '$lib/api/session.server';
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
 import { createSafeUser } from '$lib/types/chat';
 import { createLogger } from '$lib/utils/logger.server';
-import { validateTurnstileToken } from '$lib/utils/turnstile.server';
+import { loginSchema } from '$lib/validation/password';
+import { z } from 'zod';
 
 const log = createLogger('login-server');
-const isDev = process.env.NODE_ENV === 'development';
 
 // In-memory map to track failed login attempts per IP
 const loginAttempts = new Map<string, { count: number, lastAttempt: number }>();
@@ -29,14 +29,6 @@ setInterval(() => {
     }
 }, 60 * 60 * 1000);
 
-// Helper to parse clearance cookie from headers
-function getClearanceCookie(cookieHeader: string | null): string | null {
-    if (!cookieHeader) return null;
-    // Use a case-insensitive regex to match either "cf-clearance" or "cf_clearance"
-    const regex = /cf[-_]clearance=([^;]+)/i;
-    const match = cookieHeader.match(regex);
-    return match ? match[1] : null;
-}
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
     log.debug('New login attempt received');
@@ -72,53 +64,24 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         );
     }
 
-    // Extract cookie header and clearance cookie BEFORE validating input.
-    const cookieHeader = request.headers.get('cookie');
-    const clearanceCookie = getClearanceCookie(cookieHeader);
-
-    // Note: Mark turnstileToken as optional if a valid clearance cookie exists or in dev mode.
-    const { username, password, turnstileToken } = body as {
+    const { username, password } = body as {
         username: string;
         password: string;
-        turnstileToken?: string;
     };
 
-    if (
-        typeof username !== 'string' ||
-        typeof password !== 'string' ||
-        (!isDev && !clearanceCookie && typeof turnstileToken !== 'string')
-    ) {
-        log.warn('Missing or invalid input fields', {
-            hasUsername: typeof username === 'string',
-            hasPassword: typeof password === 'string',
-            hasTurnstileToken: typeof turnstileToken === 'string',
-            isDev
-        });
+    // Validate input using Zod schema
+    try {
+        loginSchema.parse({ username, password });
+    } catch (err) {
+        const zodError = err as z.ZodError;
+        const errorMessage = zodError.errors?.[0]?.message || 'Invalid input data';
+        log.warn('Login validation failed', { error: errorMessage });
         return new Response(
-            JSON.stringify({ error: 'Missing or invalid input fields' } as LoginResponseError),
+            JSON.stringify({ error: errorMessage } as LoginResponseError),
             { status: 400 }
         );
     }
 
-    // Check for dev mode or clearance cookie before validating Turnstile token.
-    let isValidTurnstile = false;
-    if (isDev) {
-        log.debug('Development mode: bypassing token challenge.');
-        isValidTurnstile = true;
-    } else if (clearanceCookie) {
-        log.debug('Clearance cookie detected; bypassing token challenge.');
-        isValidTurnstile = true;
-    } else {
-        isValidTurnstile = await validateTurnstileToken(turnstileToken as string, ip);
-    }
-
-    if (!isValidTurnstile) {
-        log.warn('Invalid Turnstile token', { maskedIp });
-        return new Response(
-            JSON.stringify({ error: 'Security check failed. Please try again.' } as LoginResponseError),
-            { status: 400 }
-        );
-    }
 
     // Find user by username
     const user = await db.query.users.findFirst({

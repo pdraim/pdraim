@@ -27,6 +27,8 @@ export type UserStatus = 'offline' | 'online' | 'away' | string;
     content: string;
     type: MessageType; // Default is 'chat'
     timestamp: number;  // Timestamp when the message was sent
+    styleData?: string; // JSON string of TextStyle object for formatting
+    hasFormatting?: boolean; // Flag to indicate if message has custom formatting
   }
 
   // Safe user type for API responses - omits sensitive information

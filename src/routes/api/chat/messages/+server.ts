@@ -15,6 +15,7 @@ import { chatRooms } from '$lib/db/schema';
 import { users } from '$lib/db/schema';
 import { DEFAULT_CHAT_ROOM_ID } from '$lib/utils/chat.server';
 import { createLogger } from '$lib/utils/logger.server';
+import { sanitizeStyleData } from '$lib/validation/text-formatting';
 
 const log = createLogger('chat-server');
 
@@ -83,7 +84,12 @@ export async function GET({ request, locals }) {
             .from(messages)
             .where(conditions)
             .orderBy(desc(messages.timestamp))
-            .limit(fetchLimit);
+            .limit(fetchLimit)
+            .then(rows => rows.map(row => ({
+                ...row,
+                styleData: row.styleData ?? undefined,
+                hasFormatting: row.hasFormatting ?? false
+            })));
 
         const response: GetMessagesResponse = {
             success: true,
@@ -182,13 +188,17 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             return new Response(JSON.stringify(errorResponse), { status: 404 });
         }
 
+        const validatedStyleData = sanitizeStyleData(data.styleData);
+        
         const newMessage: Message = {
             id: uuidv4(),
             chatRoomId,
             senderId: data.userId,
             content: data.content,
             type: data.type || 'chat',
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            styleData: validatedStyleData,
+            hasFormatting: Boolean(validatedStyleData)
         };
 
         // Save to DB

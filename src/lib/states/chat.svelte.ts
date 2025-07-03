@@ -488,7 +488,7 @@ class ChatState {
         }
     }
 
-    async sendMessage(content: string, type: Message['type'] = 'chat'): Promise<SendMessageResponse> {
+    async sendMessage(content: string, type: Message['type'] = 'chat', textStyle?: any): Promise<SendMessageResponse> {
         const user = this.getCurrentUser();
         if (!user) {
             console.debug('Cannot send message: No current user');
@@ -505,6 +505,11 @@ class ChatState {
                 userId: user.id,
                 chatRoomId: DEFAULT_CHAT_ROOM_ID
             };
+            
+            // Add styleData if textStyle is provided
+            if (textStyle) {
+                (payload as any).styleData = JSON.stringify(textStyle);
+            }
 
             console.debug('Sending message with payload:', payload);
 
