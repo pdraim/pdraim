@@ -575,7 +575,9 @@ function handleLoginSuccess() {
                 }}>
                   <span class="nickname pointer-events-none">{message.user.nickname}:</span>
                 </Tooltip>
-                <FormattedMessage {message} allowFormatting={true} />
+                <span class="message-content">
+                  <FormattedMessage {message} allowFormatting={true} />
+                </span>
               {/if}
             </div>
           {/each}
@@ -674,7 +676,7 @@ function handleLoginSuccess() {
 <style>
   .chat-area, .users-list {
     font-size: 1rem;
-    font-family: "Pixelated MS Sans Serif", Arial, Verdana, Tahoma, sans-serif;
+    font-family: Arial, "Pixelated MS Sans Serif", Verdana, Tahoma, sans-serif;
   }
   
   input:not(.styled-input) {
@@ -734,6 +736,12 @@ function handleLoginSuccess() {
     font-weight: bold;
     color: #2d31a6;
     cursor: help;
+    flex-shrink: 0;
+  }
+  
+  .message-content {
+    flex: 1;
+    min-width: 0;
   }
 
   .message .content {
