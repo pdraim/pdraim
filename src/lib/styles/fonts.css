@@ -1,0 +1,100 @@
+/* Windows Classic Font Fallbacks */
+/* 
+ * These @font-face declarations ensure consistent font rendering
+ * by providing proper fallbacks for classic Windows fonts
+ */
+
+/* Tahoma - Primary UI font */
+@font-face {
+  font-family: 'Tahoma Web';
+  src: local('Tahoma'), local('Tahoma Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Tahoma Web';
+  src: local('Tahoma Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Verdana - Secondary UI font */
+@font-face {
+  font-family: 'Verdana Web';
+  src: local('Verdana'), local('Verdana Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Verdana Web';
+  src: local('Verdana Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Arial - General purpose */
+@font-face {
+  font-family: 'Arial Web';
+  src: local('Arial'), local('Arial Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Arial Web';
+  src: local('Arial Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Times New Roman - Serif font */
+@font-face {
+  font-family: 'Times New Roman Web';
+  src: local('Times New Roman'), local('Times New Roman Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Times New Roman Web';
+  src: local('Times New Roman Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Courier New - Monospace */
+@font-face {
+  font-family: 'Courier New Web';
+  src: local('Courier New'), local('Courier New Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Courier New Web';
+  src: local('Courier New Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Comic Sans MS - Fun font */
+@font-face {
+  font-family: 'Comic Sans MS Web';
+  src: local('Comic Sans MS'), local('Comic Sans MS Regular');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Comic Sans MS Web';
+  src: local('Comic Sans MS Bold');
+  font-weight: bold;
+  font-style: normal;
+}
+
+/* Ensure font-display for better performance */
+@font-face {
+  font-display: swap;
+}
