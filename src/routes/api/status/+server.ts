@@ -5,6 +5,7 @@ import { validateSessionToken, generateSessionToken, createSession } from '$lib/
 import { setSessionTokenCookie } from '$lib/api/session.cookie';
 import { createSafeUser } from '$lib/types/chat';
 import { createLogger } from '$lib/utils/logger.server';
+import { buddyListCache } from '$lib/buddyListCache';
 import type { RequestHandler } from './$types';
 
 const log = createLogger('status-server');
@@ -46,6 +47,9 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
             .returning()
             .get();
         log.debug('Database updated successfully', { userId: maskedUserId, status });
+        
+        // Invalidate buddy list cache when status changes
+        buddyListCache.invalidate();
 
         // Renew session if status is online and session expires in less than 1 day
         if (status === 'online') {

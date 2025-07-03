@@ -19,7 +19,7 @@
 		"test": "npm run test:unit -- --run",
 		"db:generate": "npx drizzle-kit generate",
 		"db:push": "npx drizzle-kit push",
-		"db:push-prod": "TURSO_DATABASE_URL=\"$TURSO_DATABASE_URL_PROD\" TURSO_AUTH_TOKEN=\"$TURSO_AUTH_TOKEN_PROD\" npx drizzle-kit push",
+		"db:push-prod": "bash -c 'source .env && TURSO_DATABASE_URL=\"$TURSO_DATABASE_URL_PROD\" TURSO_AUTH_TOKEN=\"$TURSO_AUTH_TOKEN_PROD\" npx drizzle-kit push'",
 		"db:flush": "tsx utils/db-flush.ts"
 	},
 	"devDependencies": {
