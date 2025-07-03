@@ -197,9 +197,13 @@ export async function POST({ request, locals }: { request: Request, locals: App.
             content: data.content,
             type: data.type || 'chat',
             timestamp: Date.now(),
-            styleData: validatedStyleData,
+            styleData: validatedStyleData ? JSON.stringify(validatedStyleData) : undefined,
             hasFormatting: Boolean(validatedStyleData)
         };
+
+
+        // debug style data content at this point
+        log.debug('Style data content', { styleData: validatedStyleData });
 
         // Save to DB
         await db.insert(messages).values(newMessage);

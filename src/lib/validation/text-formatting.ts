@@ -76,6 +76,17 @@ export function validateTextStyle(style: unknown): TextStyle | null {
 export function sanitizeStyleData(styleData: unknown): TextStyle | undefined {
   if (!styleData) return undefined;
   
-  const validated = validateTextStyle(styleData);
+  // Handle JSON string input
+  let parsedData: unknown = styleData;
+  if (typeof styleData === 'string') {
+    try {
+      parsedData = JSON.parse(styleData);
+    } catch (error) {
+      console.warn('Failed to parse styleData JSON:', error);
+      return undefined;
+    }
+  }
+  
+  const validated = validateTextStyle(parsedData);
   return validated || undefined;
 }
