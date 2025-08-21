@@ -1,0 +1,29 @@
+# Global ownership - all files require review from @pdraim
+* @pdraim
+
+# Specific ownership patterns for critical files
+# Package management and dependencies
+package.json @pdraim
+pnpm-lock.yaml @pdraim
+.github/dependabot.yml @pdraim
+
+# Database schema and configuration
+drizzle.config.ts @pdraim
+drizzle/ @pdraim
+src/lib/db/ @pdraim
+
+# Core application configuration
+svelte.config.js @pdraim
+vite.config.ts @pdraim
+tsconfig.json @pdraim
+tailwind.config.ts @pdraim
+
+# Security and authentication related code
+src/lib/api/session.* @pdraim
+src/lib/utils/password.ts @pdraim
+src/lib/validation/ @pdraim
+src/lib/utils/security-tests.ts @pdraim
+
+# Server-side API routes
+src/routes/api/ @pdraim
+src/hooks.server.ts @pdraim
