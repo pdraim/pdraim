@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 
 /**
  * Logging configuration
@@ -38,7 +39,7 @@ export default defineConfig(({ mode }) => {
 	console.log(`Building with LOG_LEVEL=${logLevel} in ${mode} mode`);
 
 	return {
-		plugins: [sveltekit()],
+		plugins: [tailwindcss(), sveltekit()],
 		test: {
 			include: ['src/**/*.{test,spec}.{js,ts}']
 		},
