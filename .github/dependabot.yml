@@ -1,0 +1,67 @@
+version: 2
+updates:
+  # npm dependencies via pnpm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    # Group updates to reduce PR noise
+    groups:
+      # Group SvelteKit and related core framework updates
+      sveltekit:
+        patterns:
+          - "@sveltejs/*"
+          - "svelte*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group development tooling updates
+      dev-tools:
+        patterns:
+          - "eslint*"
+          - "prettier*"
+          - "@eslint/*"
+          - "typescript*"
+          - "@types/*"
+          - "vite*"
+          - "vitest*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group Tailwind CSS related packages
+      tailwind:
+        patterns:
+          - "tailwindcss*"
+          - "@tailwindcss/*"
+          - "autoprefixer"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group Drizzle ORM related packages
+      drizzle:
+        patterns:
+          - "drizzle-*"
+          - "@libsql/*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Set PR limits to avoid overwhelming the team
+    open-pull-requests-limit: 8
+    # Ignore packages that require manual updates or are pinned for specific reasons
+    ignore:
+      # Node.js version is managed via engines field and should be manually updated
+      - dependency-name: "node"
+      # Major framework versions should be manually reviewed due to breaking changes
+      - dependency-name: "@sveltejs/kit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "svelte"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    # Configure commit message format
+    commit-message:
+      prefix: "deps"
+      include: "scope"
