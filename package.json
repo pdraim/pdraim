@@ -58,7 +58,7 @@
 		"@libsql/client": "^0.15.12",
 		"dotenv": "^16.6.1",
 		"drizzle-orm": "^0.44.4",
-		"pino": "^9.7.0",
+		"pino": "^9.9.0",
 		"pino-pretty": "^13.0.0",
 		"rehype": "^13.0.2",
 		"rehype-sanitize": "^6.0.0",
